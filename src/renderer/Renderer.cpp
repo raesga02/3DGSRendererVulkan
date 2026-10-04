@@ -48,11 +48,18 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 	createFrameBuffers();
 	scanScenes();
 
-	// Load the requested scene, or a default if one is available.
+	// Load the requested scene, or a sensible default if one is available.
 	if (!initialScene.empty() && std::filesystem::exists(initialScene)) {
 		loadScene(initialScene);
 	} else if (!m_sceneState.scenePaths.empty()) {
-		loadScene(m_sceneState.scenePaths.front());
+		size_t defaultIndex = 0;
+		for (size_t i = 0; i < m_sceneState.availableScenes.size(); ++i) {
+			if (m_sceneState.availableScenes[i] == "room") {
+				defaultIndex = i;
+				break;
+			}
+		}
+		loadScene(m_sceneState.scenePaths[defaultIndex]);
 	}
 
 	m_lastFrameTime = std::chrono::steady_clock::now();
@@ -104,10 +111,15 @@ void Renderer::scanScenes() {
 	m_sceneState.availableScenes.clear();
 	m_sceneState.scenePaths.clear();
 
+#ifdef SCENE_MODELS_DIR
+	const std::filesystem::path root = SCENE_MODELS_DIR;
+#else
 	const std::filesystem::path root = "assets/models";
+#endif
 	if (!std::filesystem::exists(root))
 		return;
 
+	std::vector<std::pair<std::string, std::string>> found;
 	for (const auto &entry : std::filesystem::directory_iterator(root)) {
 		if (!entry.is_directory())
 			continue;
@@ -115,9 +127,17 @@ void Renderer::scanScenes() {
 		if (!std::filesystem::exists(ply))
 			continue;
 
-		m_sceneState.availableScenes.push_back(entry.path().filename().string());
-		m_sceneState.scenePaths.push_back(ply.string());
+		found.emplace_back(entry.path().filename().string(), ply.string());
 	}
+
+	std::sort(found.begin(), found.end());
+
+	for (auto &[name, path] : found) {
+		m_sceneState.availableScenes.push_back(name);
+		m_sceneState.scenePaths.push_back(path);
+	}
+
+	utils::logInfo("Found {} scene(s) in {}", found.size(), root.string());
 }
 
 void Renderer::loadScene(const std::string &plyPath) {

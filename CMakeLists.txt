@@ -112,6 +112,9 @@ add_dependencies(${PROJECT_NAME} shaders)
 # ---------------------------------------------------------------
 # Runtime assets
 # ---------------------------------------------------------------
-if(EXISTS "${CMAKE_SOURCE_DIR}/assets")
-    file(COPY "${CMAKE_SOURCE_DIR}/assets" DESTINATION "${CMAKE_BINARY_DIR}")
-endif()
+# Scene models are large and downloaded after configure time, so they are NOT
+# copied into the build directory. Instead the executable is told where the
+# source assets live, so newly downloaded scenes are picked up immediately.
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    SCENE_MODELS_DIR="${CMAKE_SOURCE_DIR}/assets/models"
+)
