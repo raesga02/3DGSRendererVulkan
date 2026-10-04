@@ -118,6 +118,9 @@ void GUIPass::newFrame(const RenderStats &stats) {
 	ImGui::Separator();
 	ImGui::Text("Rendering");
 	ImGui::SliderFloat("Splat scale", &m_sceneState->splatScale, 0.1f, 3.0f, "%.2f");
+	if (m_sceneState->maxShDegree > 0) {
+		ImGui::SliderInt("SH degree", &m_sceneState->shDegree, 0, m_sceneState->maxShDegree);
+	}
 	ImGui::Checkbox("Depth sort", &m_sceneState->sortEnabled);
 	ImGui::Checkbox("Cull floaters", &m_sceneState->cullLargeSplats);
 	if (m_sceneState->cullLargeSplats)

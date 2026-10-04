@@ -26,7 +26,8 @@ struct SceneState {
 	// Loaded scene info.
 	std::string currentSceneName;
 	uint32_t gaussianCount = 0;
-	int shDegree = 0;
+	int shDegree = 0;         // currently displayed SH order
+	int maxShDegree = 0;      // maximum available in the loaded scene
 
 	// Scene browser.
 	std::vector<std::string> availableScenes;        // display names

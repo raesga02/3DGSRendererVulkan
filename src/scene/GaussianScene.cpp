@@ -58,9 +58,13 @@ void GaussianScene::init(core::Device &device, gpu::Allocator &allocator, const 
 		out.cov3D[4] = cov[1][2];
 		out.cov3D[5] = cov[2][2];
 
-		out.color[0] = glm::clamp(0.5f + io::kShC0 * g.f_dc[0], 0.0f, 1.0f);
-		out.color[1] = glm::clamp(0.5f + io::kShC0 * g.f_dc[1], 0.0f, 1.0f);
-		out.color[2] = glm::clamp(0.5f + io::kShC0 * g.f_dc[2], 0.0f, 1.0f);
+		// SH coefficients, laid out [coeff][channel] with coeff 0 = DC.
+		// The PLY stores f_rest as [higher-order coeff][channel].
+		for (int c = 0; c < 3; ++c) {
+			out.sh[0 * 3 + c] = g.f_dc[c];
+			for (int k = 0; k < 15; ++k)
+				out.sh[(k + 1) * 3 + c] = g.f_rest[k * 3 + c];
+		}
 
 		out.opacity = io::sigmoid(g.opacity);
 	}

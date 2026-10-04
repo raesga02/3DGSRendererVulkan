@@ -6,6 +6,7 @@
 #include "renderer/SceneState.hpp"
 #include "utils/Shader.hpp"
 
+#include <cstdint>
 #include <stdexcept>
 
 namespace renderer {
@@ -89,7 +90,7 @@ void RasterizePass::createPipelineLayout(RenderContext &renderCtx) {
 	VkPushConstantRange pushRange{
 		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
 		.offset = 0,
-		.size = sizeof(float) * 2,
+		.size = sizeof(float) * 2 + sizeof(int32_t),
 	};
 
 	VkPipelineLayoutCreateInfo layoutInfo{
@@ -278,13 +279,21 @@ void RasterizePass::record(RenderContext &renderCtx, const PassContext &passCtx)
 	vkCmdSetViewport(passCtx.cmd, 0, 1, &viewport);
 	vkCmdSetScissor(passCtx.cmd, 0, 1, &scissor);
 
-	float splatScale = renderCtx.sceneState->splatScale;
-	float maxRadiusFraction = renderCtx.sceneState->cullLargeSplats ? renderCtx.sceneState->maxSplatFraction : 0.0f;
-	float pushConstants[2] = { splatScale, maxRadiusFraction };
+	struct PushConstants {
+		float splatScale;
+		float maxRadiusFraction;
+		int32_t shDegree;
+	};
+
+	PushConstants pc{
+		.splatScale = renderCtx.sceneState->splatScale,
+		.maxRadiusFraction = renderCtx.sceneState->cullLargeSplats ? renderCtx.sceneState->maxSplatFraction : 0.0f,
+		.shDegree = renderCtx.sceneState->shDegree,
+	};
 
 	vkCmdBindPipeline(passCtx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 	vkCmdBindDescriptorSets(passCtx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &m_sets[passCtx.frameIndex], 0, nullptr);
-	vkCmdPushConstants(passCtx.cmd, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pushConstants), pushConstants);
+	vkCmdPushConstants(passCtx.cmd, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
 	vkCmdDraw(passCtx.cmd, 6, m_instanceCount, 0, 0);
 
 	vkCmdEndRendering(passCtx.cmd);

@@ -174,6 +174,7 @@ void Renderer::loadScene(const std::string &plyPath) {
 	m_sceneState.currentSceneName = p.parent_path().filename().string();
 	m_sceneState.gaussianCount = count;
 	m_sceneState.shDegree = meta.shDegree;
+	m_sceneState.maxShDegree = meta.shDegree;
 	m_sceneState.sceneDirty = true;
 
 	utils::logInfo("Loaded scene '{}': {} Gaussians, SH degree {}, radius {:.2f}",
