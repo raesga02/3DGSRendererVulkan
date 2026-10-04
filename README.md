@@ -1,1 +1,227 @@
-# 3DGSRendererVulkan
+# 3DGS Renderer (Vulkan)
+
+A from-scratch **3D Gaussian Splatting (3DGS)** visualizer written in C++20 and
+Vulkan 1.3, built as a prototype for the **TDT16_XR** theory module.
+
+The goal is a fast, portable desktop splat viewer that loads *already trained*
+INRIA `.ply` scenes and lets you fly around them in real time. The rendering
+layer is deliberately decoupled from presentation, so an OpenXR (VR/MR) path can
+be added on top without rewriting the renderer.
+
+> Status: **Phase 0 complete** — project scaffolding, build system and a running
+> Vulkan application (clear/gradient background + Dear ImGui overlay). No splats
+> are drawn yet; that starts in Phase 1.
+
+---
+
+## Why this project
+
+3D Gaussian Splatting is an explicit, point-based radiance-field representation:
+a scene is a cloud of anisotropic 3D Gaussians, each with position, scale,
+rotation, opacity and spherical-harmonics (SH) colour. Rendering them means
+projecting each Gaussian's 3D covariance into screen space and alpha-compositing
+them in depth order. The interesting graphics work is:
+
+- the **EWA projection** (3D covariance → 2D conic),
+- the **depth sort** required for correct transparency,
+- and efficient **rasterization** of millions of translucent primitives.
+
+The academic reference implementations are CUDA-only. Reimplementing the
+pipeline in Vulkan is both a strong learning exercise and a useful, cross-vendor
+demonstration. The course's "understanding a concept" objective is served by an
+interactive visualisation of the pipeline stages (Phase 3).
+
+---
+
+## Current status (Phase 0)
+
+Implemented:
+
+- CMake build with Vulkan SDK + shader compilation (`glslangValidator`).
+- GLFW window, `vkb::Instance`/device selection, VMA allocator, swapchain.
+- `IPresentation` abstraction with a working `DesktopPresentation`.
+- Pass framework (`Pass`, `RenderContext`, `PassContext`).
+- `BackgroundPass` (fullscreen gradient) and `GUIPass` (Dear ImGui overlay).
+- `scene::GaussianData` / `scene::Camera` / `utils::Math` primitives for Phase 1.
+- Dataset download helper (`scripts/download_models.sh`).
+
+Not implemented yet: PLY loading, projection, sorting, rasterization.
+
+---
+
+## Architecture
+
+```
+3DGSRendererVulkan/
+├── CMakeLists.txt              # Vulkan, shader compile, submodules, asset copy
+├── external/                   # git submodules (pinned)
+│   ├── glfw/ glm/ fmt/ imgui/ vma/ vk-bootstrap/ stb/
+│   └── tinyply/                 # .ply parsing (Phase 1)
+├── assets/
+│   └── models/                  # downloaded .ply scenes (git-ignored)
+├── shaders/
+│   ├── common/                  # shared GLSL (Gaussian layout, SH helpers)
+│   ├── background.vert/.frag    # Phase 0 gradient
+│   ├── project.comp             # Phase 1: EWA projection + culling
+│   ├── keygen.comp              # Phase 2: depth sort keys
+│   ├── radix_*.comp             # Phase 2: histogram / scan / scatter
+│   ├── tile_ranges.comp         # Phase 2 (optional): per-tile ranges
+│   ├── splat.vert/.frag         # Phase 1: instanced-quad rasterization
+│   └── composite.vert/.frag     # Phase 2: offscreen HDR → target, tonemap
+├── scripts/
+│   ├── download_models.sh       # fetch pretrained INRIA scenes
+│   └── download_models.py       # HTTP-range extraction of one scene
+├── src/
+│   ├── main.cpp
+│   ├── app/
+│   │   ├── Application.*        # window, main loop, input, lifecycle
+│   │   ├── InputState.hpp       # desktop + XR unified input snapshot
+│   │   ├── IPresentation.hpp    # "where pixels go" interface (desktop/XR)
+│   │   └── DesktopPresentation.*# swapchain + per-frame sync (GLFW/Vulkan)
+│   ├── core/
+│   │   ├── VulkanContext.*      # VkInstance + surface
+│   │   ├── Device.*             # physical/logical device, queues, one-shot cmds
+│   │   └── Swapchain.*          # vkb swapchain wrapper
+│   ├── gpu/
+│   │   ├── Allocator.*          # VMA
+│   │   ├── Buffer.*             # VMA-backed buffer
+│   │   └── Image.*              # VMA-backed image + layout tracking
+│   ├── io/                      # Phase 1: PlyLoader / SplatLoader / GpuSplatData
+│   ├── scene/
+│   │   ├── GaussianData.hpp     # POD: pos, scale, rot, opacity, SH
+│   │   ├── Camera.*             # view/projection
+│   │   └── GaussianScene.*      # Phase 1: Gaussians, AABB, GPU buffers
+│   ├── renderer/
+│   │   ├── Renderer.*           # frame orchestration, pass scheduling
+│   │   ├── RenderContext.hpp    # shared services + target info
+│   │   ├── SceneState.hpp       # UI-adjustable state
+│   │   ├── RenderStats.hpp      # fps / frame time
+│   │   └── passes/
+│   │       ├── Pass.hpp         # base pass interface
+│   │       ├── BackgroundPass.* # Phase 0
+│   │       ├── GUIPass.*        # Dear ImGui overlay
+│   │       ├── ProjectPass.*    # Phase 1
+│   │       ├── SortPass.*       # Phase 2
+│   │       ├── RasterizePass.*  # Phase 1/2
+│   │       └── DebugPass.*      # Phase 3: pipeline visualisations
+│   ├── xr/                      # Phase 4: XrContext / XrSwapchain / XrInput
+│   └── utils/
+│       ├── Shader.*             # SPIR-V module loading
+│       ├── VulkanUtils.hpp      # barriers / layout transitions
+│       ├── Math.hpp             # quat→matrix, cov3D
+│       └── Log.hpp              # fmt logging
+└── README.md
+```
+
+### Key design decisions
+
+- **Presentation is abstracted away from rendering.** `Renderer` draws into a
+  `PresentTarget` supplied by an `IPresentation`. Desktop uses a swapchain;
+  Phase 4 will add an `XrPresentation` that submits stereo layers to OpenXR.
+- **Passes know nothing about the window.** They only see `RenderContext` and
+  `PassContext`, so they are reused verbatim across desktop and VR.
+- **Data is separated from rendering.** `io/` produces CPU Gaussians;
+  `scene/` owns them and their GPU buffers; `renderer/` only consumes them.
+- **Everything is a `Pass`.** New techniques (tile rasterizer, sort-free
+  variants, debug views) slot in without touching the frame loop.
+
+---
+
+## Roadmap
+
+| Phase | Deliverable | Highlights |
+|:-----:|-------------|------------|
+| **0** | ✅ Scaffold | Build system, Vulkan core, pass framework, ImGui, background |
+| **1** | Desktop splat viewer | PLY load, EWA projection, instanced-quad splats, CPU depth sort, orbit camera |
+| **2** | Real-time | Own GPU radix sort, SH degree 3, front-to-back early-out, fp16, culling |
+| **3** | Own splat + teaching layer | Capture + train own `.ply`, debug/explainer views, camera-path recording |
+| **4** | VR (stretch) | OpenXR PCVR against Quest 3/Oculus, stereo rendering, controller locomotion |
+| **5** | Polish | Scene switching, performance stats, report/slides material |
+
+### Decisions already made
+
+- **Desktop is the primary deliverable; VR is a modular stretch goal.**
+- **VR target:** PCVR via **OpenXR** against the lab's Oculus / Meta Quest 3
+  (not standalone Android). *Linux caveat:* Meta's PC runtime is Windows-only,
+  so on this machine Quest 3 PCVR would go through **WiVRn or ALVR → Monado**;
+  a Windows lab PC is the simpler fallback. Runtimes will be installed in Phase 4.
+- **Rasterization:** instanced-quad billboards + hardware alpha blending first,
+  behind the `RasterizePass` interface so a tile-based compute path can replace it.
+- **Sorting:** implement the radix sort ourselves (bitonic first as a
+  correctness checkpoint, then 4×8-bit LSD radix).
+
+### Memory budget
+
+The dev GPU has **8 GB VRAM**. Degree-3 SH is ~200 B/Gaussian, so a 5 M-Gaussian
+Mip-NeRF360 scene needs ~1.3 GB for SH alone. Phase 1 starts with DC-only SH and
+the smaller scenes (`room`, `counter`, `kitchen`, `truck`, `train`); Phase 2 adds
+fp16 storage and degree-3 support.
+
+---
+
+## Building
+
+Requirements:
+
+- Vulkan 1.3+ SDK (`glslangValidator` on `PATH` or under `$VULKAN_SDK`).
+- CMake ≥ 3.20 and a C++20 compiler (tested with GCC 13).
+- Linux (X11/Wayland), Windows or macOS via the same submodules.
+
+```bash
+git clone --recursive <repo-url>
+cd 3DGSRendererVulkan
+
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j"$(nproc)"
+
+./build/3DGSRendererVulkan
+```
+
+Controls (Phase 0): `H` toggles the GUI, `Esc` quits.
+
+---
+
+## Datasets
+
+Pretrained scenes are the official **INRIA 3DGS** models (`.ply`,
+`iteration_30000`):
+
+- Full 13-scene archive (~14.66 GB):
+  <https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/datasets/pretrained/models.zip>
+- Scenes: `bicycle flowers garden stump treehill room counter kitchen bonsai
+  truck train drjohnson playroom`.
+
+Download individual scenes (HTTP-range extraction, one scene at a time):
+
+```bash
+./scripts/download_models.sh --list          # show available scenes
+./scripts/download_models.sh room            # ~350-700 MB
+./scripts/download_models.sh truck counter
+```
+
+Other sources:
+
+- `nerfstudio-project/gsplat` paper-scene downloader (source of the range logic).
+- `antimatter15/splat` — compact `.splat` scenes and a WebGL viewer.
+- PlayCanvas **SuperSplat** (<https://superspl.at>) — sample scenes + browser editor.
+- **Polycam** / **Luma AI** — capture on a phone and export `.ply`/`.splat`.
+- Source captures for retraining: Tanks & Temples / Deep Blending SfM data
+  (<https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/datasets/input/tandt_db.zip>).
+
+**Creating your own splat** (Phase 3): capture 1–2 min of photos/video, run
+**COLMAP**/GLOMAP for SfM, then train with **gsplat/nerfstudio**, **Postshot**
+(Windows GUI) or **OpenSplat**. Luma AI on a phone is the fastest path.
+
+---
+
+## References
+
+- Kerbl et al., *3D Gaussian Splatting for Real-Time Radiance Field Rendering*,
+  SIGGRAPH 2023.
+- `graphdeco-inria/gaussian-splatting` (reference implementation).
+- `shg8/3DGS.cpp` — cross-platform Vulkan compute 3DGS renderer (LGPL).
+- `nvpro-samples/vk_gaussian_splatting` — Vulkan 3DGS testbed (Apache-2.0).
+
+Third-party libraries are vendored as submodules and keep their original
+licenses (`glfw`, `glm`, `fmt`, `imgui`, `vk-bootstrap`, `VMA`, `stb`,
+`tinyply`).

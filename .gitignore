@@ -1,0 +1,12 @@
+# Build artifacts
+/build/*
+!/build/.emptydirectory
+
+# Editor / IDE
+.vscode/
+.cache/
+compile_commands.json
+
+# Downloaded splat scenes (large binaries)
+assets/models/*
+!assets/models/.gitkeep
