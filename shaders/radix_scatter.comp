@@ -1,0 +1,52 @@
+#version 450
+
+// Stable scatter for one radix digit, from the input ping-pong buffers to the
+// output ping-pong buffers.
+
+layout(local_size_x = 256) in;
+
+#define BLOCK_SIZE 2048
+
+layout(set = 0, binding = 0, std430) readonly buffer InKeyBuffer {
+    uint inKeys[];
+};
+layout(set = 0, binding = 1, std430) readonly buffer InValueBuffer {
+    uint inValues[];
+};
+layout(set = 0, binding = 2, std430) writeonly buffer OutKeyBuffer {
+    uint outKeys[];
+};
+layout(set = 0, binding = 3, std430) writeonly buffer OutValueBuffer {
+    uint outValues[];
+};
+layout(set = 0, binding = 4, std430) readonly buffer HistBuffer {
+    uint hist[];
+};
+layout(set = 0, binding = 5, std430) readonly buffer GlobalExBuffer {
+    uint globalEx[];
+};
+
+layout(push_constant) uniform Push {
+    uint shift;
+} pc;
+
+shared uint counters[256];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint group = gl_WorkGroupID.x;
+
+    for (uint b = tid; b < 256u; b += 256u)
+        counters[b] = globalEx[b] + hist[group * 256u + b];
+    barrier();
+
+    uint base = group * BLOCK_SIZE;
+    for (uint t = 0u; t < 8u; ++t) {
+        uint idx = base + t * 256u + tid;
+        uint key = inKeys[idx];
+        uint digit = (key >> pc.shift) & 0xFFu;
+        uint pos = atomicAdd(counters[digit], 1u);
+        outKeys[pos] = key;
+        outValues[pos] = inValues[idx];
+    }
+}

@@ -19,16 +19,6 @@
 
 namespace renderer {
 
-namespace {
-
-uint32_t floatToSortableUint(float f) {
-	uint32_t u = 0;
-	std::memcpy(&u, &f, sizeof(u));
-	return (u & 0x80000000u) ? ~u : (u | 0x80000000u);
-}
-
-}        // namespace
-
 void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::VulkanContext &context, app::IPresentation &presentation, GLFWwindow *window, const std::string &initialScene) {
 	m_device = &device;
 	m_allocator = &allocator;
@@ -45,6 +35,7 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 
 	m_backgroundPass.init(m_renderContext);
 	m_rasterizePass.init(m_renderContext);
+	m_sortPass.init(m_renderContext);
 	m_guiPass.init(m_renderContext);
 
 	core::SwapchainInfo swapchainInfo{
@@ -78,12 +69,10 @@ void Renderer::shutdown() {
 		m_readbackValid = false;
 	}
 
-	if (m_scene.isLoaded()) {
-		for (auto &buffer : m_indexBuffers)
-			buffer.shutdown(m_allocator->get());
+	if (m_scene.isLoaded())
 		m_scene.shutdown(*m_allocator);
-	}
 
+	m_sortPass.shutdown(m_renderContext);
 	m_guiPass.shutdown(m_renderContext);
 	m_rasterizePass.shutdown(m_renderContext);
 	m_backgroundPass.shutdown(m_renderContext);
@@ -134,26 +123,12 @@ void Renderer::scanScenes() {
 void Renderer::loadScene(const std::string &plyPath) {
 	vkDeviceWaitIdle(m_device->get());
 
-	if (m_scene.isLoaded()) {
-		for (auto &buffer : m_indexBuffers)
-			buffer.shutdown(m_allocator->get());
+	if (m_scene.isLoaded())
 		m_scene.shutdown(*m_allocator);
-	}
 
 	m_scene.init(*m_device, *m_allocator, plyPath);
 
 	uint32_t count = m_scene.getCount();
-	m_sortKeys.resize(count);
-	m_sortedIndices.resize(count);
-
-	VkDeviceSize indexBytes = static_cast<VkDeviceSize>(count) * sizeof(uint32_t);
-	for (auto &buffer : m_indexBuffers) {
-		buffer.init(
-		    *m_device, m_allocator->get(), indexBytes,
-		    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-		    VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
-		    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
-	}
 
 	const io::SceneMetadata &meta = m_scene.getMetadata();
 	if (meta.hasCamera)
@@ -161,12 +136,17 @@ void Renderer::loadScene(const std::string &plyPath) {
 	else
 		m_cameraController.frame(meta.center, meta.radius);
 
-	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> indexHandles;
 	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> cameraHandles;
-	for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-		indexHandles[i] = m_indexBuffers[i].get();
+	for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 		cameraHandles[i] = m_cameraBuffers[i].get();
-	}
+
+	// The sort pass produces the per-frame index buffers the rasterizer reads.
+	m_sortPass.bind(m_scene.getGaussianBuffer(), cameraHandles, count);
+
+	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> indexHandles;
+	for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+		indexHandles[i] = m_sortPass.getSortedIndices(i);
+
 	m_rasterizePass.bind(m_scene.getGaussianBuffer(), indexHandles, cameraHandles, count);
 
 	// Derive a display name from the containing directory.
@@ -201,31 +181,6 @@ void Renderer::update(const app::InputState &input, float dt) {
 	m_cameraController.apply(m_camera, aspect);
 }
 
-void Renderer::updateSortedIndices() {
-	uint32_t count = m_scene.getCount();
-	const auto &cpu = m_scene.getCpuGaussians();
-	const glm::mat4 &view = m_camera.getView();
-
-	const glm::vec4 rowZ = view[2];
-
-	if (!m_sceneState.sortEnabled) {
-		for (uint32_t i = 0; i < count; ++i)
-			m_sortedIndices[i] = i;
-		return;
-	}
-
-	for (uint32_t i = 0; i < count; ++i) {
-		const float *p = cpu[i].position;
-		float z = rowZ.x * p[0] + rowZ.y * p[1] + rowZ.z * p[2] + rowZ.w;
-		m_sortKeys[i] = (static_cast<uint64_t>(floatToSortableUint(z)) << 32) | i;
-	}
-
-	std::sort(m_sortKeys.begin(), m_sortKeys.end());
-
-	for (uint32_t i = 0; i < count; ++i)
-		m_sortedIndices[i] = static_cast<uint32_t>(m_sortKeys[i] & 0xFFFFFFFFull);
-}
-
 void Renderer::updateCameraBuffer(uint32_t frameIndex) {
 	VkExtent2D extent = m_presentation->extent();
 
@@ -250,14 +205,8 @@ void Renderer::drawFrame() {
 	app::PresentFrame frame;
 	m_presentation->beginFrame(frame);
 
-	if (m_scene.isLoaded()) {
-		updateSortedIndices();
-		std::memcpy(
-		    m_indexBuffers[frame.frameIndex].getMappedData(),
-		    m_sortedIndices.data(),
-		    m_sortedIndices.size() * sizeof(uint32_t));
+	if (m_scene.isLoaded())
 		updateCameraBuffer(frame.frameIndex);
-	}
 
 	recordFrame(frame);
 
@@ -305,8 +254,10 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 
 	m_backgroundPass.record(m_renderContext, passCtx);
 
-	if (m_scene.isLoaded())
+	if (m_scene.isLoaded()) {
+		m_sortPass.record(m_renderContext, passCtx);
 		m_rasterizePass.record(m_renderContext, passCtx);
+	}
 
 	if (m_sceneState.showGUI)
 		m_guiPass.record(m_renderContext, passCtx);

@@ -8,6 +8,7 @@
 #include "renderer/passes/BackgroundPass.hpp"
 #include "renderer/passes/GUIPass.hpp"
 #include "renderer/passes/RasterizePass.hpp"
+#include "renderer/passes/SortPass.hpp"
 #include "scene/Camera.hpp"
 #include "scene/GaussianScene.hpp"
 
@@ -67,7 +68,6 @@ class Renderer {
 
 	void scanScenes();
 	void createFrameBuffers();
-	void updateSortedIndices();
 	void updateCameraBuffer(uint32_t frameIndex);
 	void recordFrame(const app::PresentFrame &frame);
 	void captureScreenshot();
@@ -88,18 +88,15 @@ class Renderer {
 
 	BackgroundPass m_backgroundPass;
 	RasterizePass m_rasterizePass;
+	SortPass m_sortPass;
 	GUIPass m_guiPass;
 
 	std::array<gpu::Buffer, MAX_FRAMES_IN_FLIGHT> m_cameraBuffers;
-	std::array<gpu::Buffer, MAX_FRAMES_IN_FLIGHT> m_indexBuffers;
 
 	gpu::Buffer m_readbackBuffer;
 	bool m_readbackValid = false;
 	uint32_t m_readbackWidth = 0;
 	uint32_t m_readbackHeight = 0;
-
-	std::vector<uint64_t> m_sortKeys;
-	std::vector<uint32_t> m_sortedIndices;
 
 	std::chrono::steady_clock::time_point m_lastFrameTime{};
 };

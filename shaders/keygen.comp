@@ -1,0 +1,56 @@
+#version 450
+
+// Computes a 32-bit depth sort key for every Gaussian (far-to-near) and seeds
+// the value buffer with the identity permutation. Padding entries sort last.
+
+layout(local_size_x = 256) in;
+
+struct Gaussian {
+    float position[3];
+    float cov3D[6];
+    float opacity;
+    float sh[48];
+};
+
+layout(set = 0, binding = 0) uniform CameraUbo {
+    mat4 view;
+    mat4 proj;
+    vec4 viewport;
+    vec4 cameraPos;
+} camera;
+
+layout(set = 0, binding = 1, std430) readonly buffer GaussianBuffer {
+    Gaussian gaussians[];
+};
+
+layout(set = 0, binding = 2, std430) writeonly buffer KeyBuffer {
+    uint keys[];
+};
+
+layout(set = 0, binding = 3, std430) writeonly buffer ValueBuffer {
+    uint values[];
+};
+
+layout(push_constant) uniform Push {
+    uint count;
+} pc;
+
+uint floatToSortable(float f) {
+    uint u = floatBitsToUint(f);
+    return (u & 0x80000000u) != 0u ? ~u : (u | 0x80000000u);
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.count) {
+        keys[i] = 0xFFFFFFFFu;
+        values[i] = 0u;
+        return;
+    }
+
+    vec3 p = vec3(gaussians[i].position[0], gaussians[i].position[1], gaussians[i].position[2]);
+    float z = camera.view[2].x * p.x + camera.view[2].y * p.y + camera.view[2].z * p.z + camera.view[2].w;
+
+    keys[i] = floatToSortable(z);
+    values[i] = i;
+}
