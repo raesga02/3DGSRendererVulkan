@@ -10,11 +10,21 @@
 
 namespace app {
 
-glm::vec3 CameraController::spherical(float yaw, float pitch) {
-	return glm::vec3(
-	    std::cos(pitch) * std::sin(yaw),
-	    std::sin(pitch),
-	    std::cos(pitch) * std::cos(yaw));
+void CameraController::rebuildBasis() {
+	glm::vec3 up = glm::normalize(m_up);
+
+	// Pick a reference axis that is not parallel to up, then orthonormalize.
+	glm::vec3 ref = (std::abs(glm::dot(up, glm::vec3(0.0f, 0.0f, 1.0f))) > 0.99f)
+	                    ? glm::vec3(1.0f, 0.0f, 0.0f)
+	                    : glm::vec3(0.0f, 0.0f, 1.0f);
+
+	m_forward0 = glm::normalize(ref - glm::dot(ref, up) * up);
+	m_right0 = glm::normalize(glm::cross(up, m_forward0));
+}
+
+glm::vec3 CameraController::direction(float yaw, float pitch) const {
+	return std::cos(pitch) * (std::cos(yaw) * m_forward0 + std::sin(yaw) * m_right0) +
+	       std::sin(pitch) * m_up;
 }
 
 void CameraController::frame(const glm::vec3 &center, float radius) {
@@ -25,8 +35,9 @@ void CameraController::frame(const glm::vec3 &center, float radius) {
 	m_yaw = 0.0f;
 	m_pitch = 0.3f;
 	m_up = glm::vec3(0.0f, 1.0f, 0.0f);
+	rebuildBasis();
 
-	m_position = m_target + m_distance * spherical(m_yaw, m_pitch);
+	m_position = m_target + m_distance * direction(m_yaw, m_pitch);
 	m_flyYaw = m_yaw;
 	m_flyPitch = m_pitch;
 }
@@ -35,13 +46,21 @@ void CameraController::frameFromCamera(const glm::vec3 &position, const glm::vec
 	m_radius = std::max(radius, 1e-3f);
 	glm::vec3 f = glm::normalize(forward);
 	m_up = glm::normalize(up);
+	rebuildBasis();
+
 	m_distance = m_radius;
 	m_target = position + f * m_distance;
 
-	// spherical(yaw, pitch) == normalize(eye - target) == -f
+	// direction(yaw, pitch) == normalize(eye - target) == -f
 	glm::vec3 dir = -f;
-	m_yaw = std::atan2(dir.x, dir.z);
-	m_pitch = std::asin(std::clamp(dir.y, -1.0f, 1.0f));
+	float upDot = std::clamp(glm::dot(dir, m_up), -1.0f, 1.0f);
+	m_pitch = std::asin(upDot);
+
+	glm::vec3 horizontal = dir - upDot * m_up;
+	if (glm::length(horizontal) > 1e-5f)
+		m_yaw = std::atan2(glm::dot(horizontal, m_right0), glm::dot(horizontal, m_forward0));
+	else
+		m_yaw = 0.0f;
 
 	m_position = position;
 	m_flyYaw = m_yaw;
@@ -51,12 +70,12 @@ void CameraController::frameFromCamera(const glm::vec3 &position, const glm::vec
 void CameraController::toggleMode() {
 	if (m_mode == Mode::Orbit) {
 		// Carry the current orbit pose into the fly camera.
-		m_position = m_target + m_distance * spherical(m_yaw, m_pitch);
+		m_position = m_target + m_distance * direction(m_yaw, m_pitch);
 		m_flyYaw = m_yaw;
 		m_flyPitch = m_pitch;
 		m_mode = Mode::Fly;
 	} else {
-		m_target = m_position - m_distance * spherical(m_flyYaw, m_flyPitch);
+		m_target = m_position - m_distance * direction(m_flyYaw, m_flyPitch);
 		m_mode = Mode::Orbit;
 	}
 }
@@ -81,9 +100,8 @@ void CameraController::update(const InputState &input, float dt) {
 			m_flyPitch = std::clamp(m_flyPitch, -1.5f, 1.5f);
 		}
 
-		glm::vec3 forward = -spherical(m_flyYaw, m_flyPitch);
-		glm::vec3 worldUp = m_up;
-		glm::vec3 right = glm::normalize(glm::cross(forward, worldUp));
+		glm::vec3 forward = -direction(m_flyYaw, m_flyPitch);
+		glm::vec3 right = glm::normalize(glm::cross(forward, m_up));
 
 		float speed = m_radius * 0.5f * (input.keyShift ? 3.0f : 1.0f);
 		glm::vec3 move(0.0f);
@@ -96,9 +114,9 @@ void CameraController::update(const InputState &input, float dt) {
 		if (input.keyA)
 			move -= right;
 		if (input.keyE)
-			move += worldUp;
+			move += m_up;
 		if (input.keyQ)
-			move -= worldUp;
+			move -= m_up;
 
 		if (glm::length(move) > 0.0f)
 			m_position += glm::normalize(move) * speed * dt;
@@ -115,11 +133,11 @@ void CameraController::apply(scene::Camera &camera, float aspect) const {
 
 	glm::vec3 eye;
 	if (m_mode == Mode::Orbit) {
-		eye = m_target + m_distance * spherical(m_yaw, m_pitch);
+		eye = m_target + m_distance * direction(m_yaw, m_pitch);
 		camera.setViewMatrix(glm::lookAt(eye, m_target, m_up));
 	} else {
 		eye = m_position;
-		glm::vec3 forward = -spherical(m_flyYaw, m_flyPitch);
+		glm::vec3 forward = -direction(m_flyYaw, m_flyPitch);
 		camera.setViewMatrix(glm::lookAt(eye, eye + forward, m_up));
 	}
 

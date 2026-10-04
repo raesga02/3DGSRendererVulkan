@@ -15,6 +15,10 @@ namespace app {
 
 // Orbit and fly cameras over a bounded scene. The fly mode is toggled with a
 // key; input deltas are supplied by the platform layer (GLFW today, XR later).
+//
+// The orbit/fly basis is built around the scene's up vector (m_up), so scenes
+// whose "up" is not world +Y (e.g. COLMAP y-down reconstructions) orbit around
+// the correct vertical axis.
 class CameraController {
   public:
 	enum class Mode {
@@ -33,7 +37,8 @@ class CameraController {
 	}
 
   private:
-	static glm::vec3 spherical(float yaw, float pitch);
+	void rebuildBasis();
+	glm::vec3 direction(float yaw, float pitch) const;
 
   private:
 	Mode m_mode = Mode::Orbit;
@@ -43,7 +48,10 @@ class CameraController {
 	float m_distance = 3.0f;
 	float m_yaw = 0.0f;
 	float m_pitch = 0.3f;
+
 	glm::vec3 m_up{ 0.0f, 1.0f, 0.0f };
+	glm::vec3 m_forward0{ 0.0f, 0.0f, 1.0f };
+	glm::vec3 m_right0{ 1.0f, 0.0f, 0.0f };
 
 	glm::vec3 m_position{ 0.0f };
 	float m_flyYaw = 0.0f;
