@@ -37,6 +37,7 @@ void GpuProfiler::init(core::Device &device, uint32_t framesInFlight, uint32_t s
 		throw std::runtime_error("Failed to create timestamp query pool");
 
 	m_results.resize(static_cast<size_t>(m_frames) * m_slots);
+	m_written.assign(m_frames, false);
 }
 
 void GpuProfiler::shutdown() {
@@ -56,10 +57,11 @@ void GpuProfiler::write(VkCommandBuffer cmd, uint32_t frameIndex, uint32_t slot)
 	if (m_pool == VK_NULL_HANDLE)
 		return;
 	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_pool, frameIndex * m_slots + slot);
+	m_written[frameIndex] = true;
 }
 
 bool GpuProfiler::read(uint32_t frameIndex, std::vector<float> &outMs) {
-	if (m_pool == VK_NULL_HANDLE)
+	if (m_pool == VK_NULL_HANDLE || !m_written[frameIndex])
 		return false;
 
 	uint64_t *base = m_results.data() + static_cast<size_t>(frameIndex) * m_slots;

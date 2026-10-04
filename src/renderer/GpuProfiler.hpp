@@ -52,6 +52,7 @@ class GpuProfiler {
 	float m_periodNs = 1.0f;
 	uint32_t m_validBits = 64;
 	std::vector<uint64_t> m_results;
+	std::vector<bool> m_written;
 };
 
 }        // namespace renderer

@@ -20,6 +20,7 @@ class RasterizePass : public Pass {
 	void bind(VkBuffer gaussianBuffer,
 	          const std::array<VkBuffer, 2> &indexBuffers,
 	          const std::array<VkBuffer, 2> &cameraBuffers,
+	          const std::array<VkBuffer, 2> &indirectBuffers,
 	          uint32_t instanceCount);
 
   private:
@@ -38,6 +39,7 @@ class RasterizePass : public Pass {
 	VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
 	VkPipeline m_pipeline = VK_NULL_HANDLE;
 
+	std::array<VkBuffer, 2> m_indirectBuffers{};
 	uint32_t m_instanceCount = 0;
 };
 

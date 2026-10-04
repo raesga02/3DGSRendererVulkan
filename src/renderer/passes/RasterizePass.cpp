@@ -207,8 +207,10 @@ void RasterizePass::createPipeline(RenderContext &renderCtx) {
 void RasterizePass::bind(VkBuffer gaussianBuffer,
                          const std::array<VkBuffer, 2> &indexBuffers,
                          const std::array<VkBuffer, 2> &cameraBuffers,
+                         const std::array<VkBuffer, 2> &indirectBuffers,
                          uint32_t instanceCount) {
 	m_instanceCount = instanceCount;
+	m_indirectBuffers = indirectBuffers;
 
 	VkDescriptorBufferInfo uboInfo[app::kMaxFramesInFlight];
 	VkDescriptorBufferInfo gaussianInfo[app::kMaxFramesInFlight];
@@ -294,7 +296,15 @@ void RasterizePass::record(RenderContext &renderCtx, const PassContext &passCtx)
 	vkCmdBindPipeline(passCtx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 	vkCmdBindDescriptorSets(passCtx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &m_sets[passCtx.frameIndex], 0, nullptr);
 	vkCmdPushConstants(passCtx.cmd, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
-	vkCmdDraw(passCtx.cmd, 6, m_instanceCount, 0, 0);
+
+	// When sorting is enabled the GPU has culled off-screen Gaussians and built
+	// an indirect draw command with the visible instance count.
+	VkBuffer indirect = m_indirectBuffers[passCtx.frameIndex];
+	if (renderCtx.sceneState->sortEnabled && indirect != VK_NULL_HANDLE) {
+		vkCmdDrawIndirect(passCtx.cmd, indirect, 0, 1, sizeof(VkDrawIndirectCommand));
+	} else {
+		vkCmdDraw(passCtx.cmd, 6, m_instanceCount, 0, 0);
+	}
 
 	vkCmdEndRendering(passCtx.cmd);
 }

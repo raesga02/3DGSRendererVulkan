@@ -1,7 +1,8 @@
 #version 450
 
-// Computes a 32-bit depth sort key for every Gaussian (far-to-near) and seeds
-// the value buffer with the identity permutation. Padding entries sort last.
+// Computes a 32-bit depth sort key for every Gaussian (far-to-near), culls
+// off-screen/behind Gaussians (key = max, so they sort last), counts the
+// visible ones, and seeds the value buffer with the identity permutation.
 
 layout(local_size_x = 256) in;
 
@@ -31,6 +32,10 @@ layout(set = 0, binding = 3, std430) writeonly buffer ValueBuffer {
     uint values[];
 };
 
+layout(set = 0, binding = 4, std430) buffer VisibleCountBuffer {
+    uint visibleCount;
+};
+
 layout(push_constant) uniform Push {
     uint count;
 } pc;
@@ -49,8 +54,22 @@ void main() {
     }
 
     vec3 p = vec3(gaussians[i].position[0], gaussians[i].position[1], gaussians[i].position[2]);
-    float z = camera.view[2].x * p.x + camera.view[2].y * p.y + camera.view[2].z * p.z + camera.view[2].w;
+    vec4 viewPos = camera.view * vec4(p, 1.0);
 
-    keys[i] = floatToSortable(z);
+    // Cull behind/near the camera and well outside the view frustum. The lateral
+    // margin (1.5x NDC) keeps large splats that straddle the screen edge.
+    vec4 clip = camera.proj * viewPos;
+    bool visible = viewPos.z < -0.05 &&
+                   abs(clip.x) <= 1.5 * clip.w &&
+                   abs(clip.y) <= 1.5 * clip.w;
+
+    if (!visible) {
+        keys[i] = 0xFFFFFFFFu;
+        values[i] = 0u;
+        return;
+    }
+
+    keys[i] = floatToSortable(viewPos.z);
     values[i] = i;
+    atomicAdd(visibleCount, 1u);
 }

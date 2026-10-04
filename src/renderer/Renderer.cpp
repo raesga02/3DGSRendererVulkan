@@ -177,10 +177,13 @@ void Renderer::loadScene(const std::string &plyPath) {
 	m_sortPass.bind(m_scene.getGaussianBuffer(), cameraHandles, count);
 
 	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> indexHandles;
-	for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> indirectHandles;
+	for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
 		indexHandles[i] = m_sortPass.getSortedIndices(i);
+		indirectHandles[i] = m_sortPass.getIndirectBuffer(i);
+	}
 
-	m_rasterizePass.bind(m_scene.getGaussianBuffer(), indexHandles, cameraHandles, count);
+	m_rasterizePass.bind(m_scene.getGaussianBuffer(), indexHandles, cameraHandles, indirectHandles, count);
 
 	// Derive a display name from the containing directory.
 	std::filesystem::path p(plyPath);

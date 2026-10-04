@@ -89,6 +89,7 @@ void SortPass::createLayouts(RenderContext &renderCtx) {
 	    { .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = cs },
 	    { .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = cs },
 	    { .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = cs },
+	    { .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = cs },
 	});
 
 	m_histSetLayout = makeSetLayout(m_vkDevice, {
@@ -110,10 +111,16 @@ void SortPass::createLayouts(RenderContext &renderCtx) {
 	    { .binding = 5, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = cs },
 	});
 
+	m_indirectSetLayout = makeSetLayout(m_vkDevice, {
+	    { .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = cs },
+	    { .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = cs },
+	});
+
 	m_keygenLayout = makePipelineLayout(m_vkDevice, m_keygenSetLayout);
 	m_histLayout = makePipelineLayout(m_vkDevice, m_histSetLayout);
 	m_scanLayout = makePipelineLayout(m_vkDevice, m_scanSetLayout);
 	m_scatterLayout = makePipelineLayout(m_vkDevice, m_scatterSetLayout);
+	m_indirectLayout = makePipelineLayout(m_vkDevice, m_indirectSetLayout);
 }
 
 VkPipeline SortPass::createComputePipeline(RenderContext &renderCtx, const char *spvPath, VkPipelineLayout layout) {
@@ -144,6 +151,7 @@ void SortPass::createPipelines(RenderContext &renderCtx) {
 	m_histPipeline = createComputePipeline(renderCtx, "shaders/radix_histogram.comp.spv", m_histLayout);
 	m_scanPipeline = createComputePipeline(renderCtx, "shaders/radix_scan.comp.spv", m_scanLayout);
 	m_scatterPipeline = createComputePipeline(renderCtx, "shaders/radix_scatter.comp.spv", m_scatterLayout);
+	m_indirectPipeline = createComputePipeline(renderCtx, "shaders/build_indirect.comp.spv", m_indirectLayout);
 }
 
 void SortPass::releaseFrameBuffers() {
@@ -156,6 +164,8 @@ void SortPass::releaseFrameBuffers() {
 			buffer.shutdown(m_allocator->get());
 		frame.blockHist.shutdown(m_allocator->get());
 		frame.globalEx.shutdown(m_allocator->get());
+		frame.visibleCount.shutdown(m_allocator->get());
+		frame.indirect.shutdown(m_allocator->get());
 	}
 	m_allocated = false;
 }
@@ -186,6 +196,8 @@ void SortPass::bind(VkBuffer gaussianBuffer, const std::array<VkBuffer, 2> &came
 			buffer.init(*m_device, m_allocator->get(), elementBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 		frame.blockHist.init(*m_device, m_allocator->get(), histBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 		frame.globalEx.init(*m_device, m_allocator->get(), kBuckets * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+		frame.visibleCount.init(*m_device, m_allocator->get(), sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+		frame.indirect.init(*m_device, m_allocator->get(), sizeof(VkDrawIndirectCommand), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 	}
 	m_allocated = true;
 
@@ -194,12 +206,13 @@ void SortPass::bind(VkBuffer gaussianBuffer, const std::array<VkBuffer, 2> &came
 		VkDescriptorSetLayout layouts[] = {
 			m_keygenSetLayout, m_histSetLayout, m_histSetLayout,
 			m_scanSetLayout, m_scatterSetLayout, m_scatterSetLayout,
+			m_indirectSetLayout,
 		};
-		VkDescriptorSet sets[6]{};
+		VkDescriptorSet sets[7]{};
 		VkDescriptorSetAllocateInfo allocInfo{
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 			.descriptorPool = m_pool,
-			.descriptorSetCount = 6,
+			.descriptorSetCount = 7,
 			.pSetLayouts = layouts,
 		};
 		if (vkAllocateDescriptorSets(m_vkDevice, &allocInfo, sets) != VK_SUCCESS)
@@ -211,6 +224,7 @@ void SortPass::bind(VkBuffer gaussianBuffer, const std::array<VkBuffer, 2> &came
 		frame.scanSet = sets[3];
 		frame.scatterSet[0] = sets[4];
 		frame.scatterSet[1] = sets[5];
+		frame.indirectSet = sets[6];
 	}
 
 	writeDescriptorSets(gaussianBuffer, cameraBuffers);
@@ -228,6 +242,8 @@ void SortPass::writeDescriptorSets(VkBuffer gaussianBuffer, const std::array<VkB
 		VkDescriptorBufferInfo v1{ frame.values[1].get(), 0, VK_WHOLE_SIZE };
 		VkDescriptorBufferInfo hist{ frame.blockHist.get(), 0, VK_WHOLE_SIZE };
 		VkDescriptorBufferInfo gex{ frame.globalEx.get(), 0, VK_WHOLE_SIZE };
+		VkDescriptorBufferInfo visible{ frame.visibleCount.get(), 0, VK_WHOLE_SIZE };
+		VkDescriptorBufferInfo indirect{ frame.indirect.get(), 0, VK_WHOLE_SIZE };
 
 		auto write = [&](VkDescriptorSet set, uint32_t binding, VkDescriptorType type, VkDescriptorBufferInfo *info) {
 			VkWriteDescriptorSet w{
@@ -245,6 +261,7 @@ void SortPass::writeDescriptorSets(VkBuffer gaussianBuffer, const std::array<VkB
 		write(frame.keygenSet, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &gauss);
 		write(frame.keygenSet, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &k0);
 		write(frame.keygenSet, 3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &v0);
+		write(frame.keygenSet, 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &visible);
 
 		write(frame.histSet[0], 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &k0);
 		write(frame.histSet[0], 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &hist);
@@ -267,6 +284,9 @@ void SortPass::writeDescriptorSets(VkBuffer gaussianBuffer, const std::array<VkB
 		write(frame.scatterSet[1], 3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &v0);
 		write(frame.scatterSet[1], 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &hist);
 		write(frame.scatterSet[1], 5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &gex);
+
+		write(frame.indirectSet, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &visible);
+		write(frame.indirectSet, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &indirect);
 	}
 }
 
@@ -276,6 +296,15 @@ void SortPass::record(RenderContext &renderCtx, const PassContext &passCtx) {
 
 	FrameResources &frame = m_frames[passCtx.frameIndex];
 	VkCommandBuffer cmd = passCtx.cmd;
+
+	// Reset the visible counter, then make the fill visible to the keygen atomic.
+	vkCmdFillBuffer(cmd, frame.visibleCount.get(), 0, sizeof(uint32_t), 0);
+	VkMemoryBarrier fillBarrier{
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+		.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+		.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+	};
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &fillBarrier, 0, nullptr, 0, nullptr);
 
 	// 1) Depth keys + identity values.
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_keygenPipeline);
@@ -317,13 +346,22 @@ void SortPass::record(RenderContext &renderCtx, const PassContext &passCtx) {
 	if (renderCtx.profiler)
 		renderCtx.profiler->write(cmd, passCtx.frameIndex, GpuSlot::Radix);
 
-	// Make the sorted indices visible to the rasterizer's vertex shader.
+	// Build the indirect draw command from the visible count. Because culled and
+	// padding entries carry the max key, the first `visibleCount` sorted entries
+	// are exactly the visible Gaussians.
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_indirectPipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_indirectLayout, 0, 1, &frame.indirectSet, 0, nullptr);
+	vkCmdDispatch(cmd, 1, 1, 1);
+
+	// Make the sorted indices and the indirect command visible to the rasterizer.
 	VkMemoryBarrier barrier{
 		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
 		.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-		.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+		.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
 	};
-	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+	                     VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+	                     0, 1, &barrier, 0, nullptr, 0, nullptr);
 }
 
 uint64_t SortPass::getGpuBytesForCount(uint32_t count) {
@@ -336,8 +374,9 @@ uint64_t SortPass::getGpuBytesForCount(uint32_t count) {
 	uint64_t elementBytes = static_cast<uint64_t>(paddedCount) * sizeof(uint32_t);
 	uint64_t histBytes = static_cast<uint64_t>(groupCount) * kBuckets * sizeof(uint32_t);
 
-	// Per frame: keys[2] + values[2] + blockHist + globalEx.
-	uint64_t perFrame = 4 * elementBytes + histBytes + static_cast<uint64_t>(kBuckets) * sizeof(uint32_t);
+	// Per frame: keys[2] + values[2] + blockHist + globalEx + visibleCount + indirect.
+	uint64_t perFrame = 4 * elementBytes + histBytes + static_cast<uint64_t>(kBuckets) * sizeof(uint32_t) +
+	                    sizeof(uint32_t) + sizeof(VkDrawIndirectCommand);
 	return static_cast<uint64_t>(MAX_FRAMES_IN_FLIGHT) * perFrame;
 }
 
@@ -355,16 +394,19 @@ void SortPass::shutdown(RenderContext &renderCtx) {
 	vkDestroyPipeline(m_vkDevice, m_histPipeline, nullptr);
 	vkDestroyPipeline(m_vkDevice, m_scanPipeline, nullptr);
 	vkDestroyPipeline(m_vkDevice, m_scatterPipeline, nullptr);
+	vkDestroyPipeline(m_vkDevice, m_indirectPipeline, nullptr);
 
 	vkDestroyPipelineLayout(m_vkDevice, m_keygenLayout, nullptr);
 	vkDestroyPipelineLayout(m_vkDevice, m_histLayout, nullptr);
 	vkDestroyPipelineLayout(m_vkDevice, m_scanLayout, nullptr);
 	vkDestroyPipelineLayout(m_vkDevice, m_scatterLayout, nullptr);
+	vkDestroyPipelineLayout(m_vkDevice, m_indirectLayout, nullptr);
 
 	vkDestroyDescriptorSetLayout(m_vkDevice, m_keygenSetLayout, nullptr);
 	vkDestroyDescriptorSetLayout(m_vkDevice, m_histSetLayout, nullptr);
 	vkDestroyDescriptorSetLayout(m_vkDevice, m_scanSetLayout, nullptr);
 	vkDestroyDescriptorSetLayout(m_vkDevice, m_scatterSetLayout, nullptr);
+	vkDestroyDescriptorSetLayout(m_vkDevice, m_indirectSetLayout, nullptr);
 
 	vkDestroyDescriptorPool(m_vkDevice, m_pool, nullptr);
 }

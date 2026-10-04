@@ -31,6 +31,11 @@ class SortPass : public Pass {
 		return m_frames[frameIndex].values[0].get();
 	}
 
+	// Indirect draw command (VkDrawIndirectCommand) for a frame-in-flight.
+	VkBuffer getIndirectBuffer(uint32_t frameIndex) const {
+		return m_frames[frameIndex].indirect.get();
+	}
+
 	// Predicted sort-resource bytes for a given Gaussian count (all frames).
 	static uint64_t getGpuBytesForCount(uint32_t count);
 
@@ -50,11 +55,14 @@ class SortPass : public Pass {
 		gpu::Buffer values[2];
 		gpu::Buffer blockHist;
 		gpu::Buffer globalEx;
+		gpu::Buffer visibleCount;
+		gpu::Buffer indirect;
 
 		VkDescriptorSet keygenSet = VK_NULL_HANDLE;
 		VkDescriptorSet histSet[2]{};
 		VkDescriptorSet scanSet = VK_NULL_HANDLE;
 		VkDescriptorSet scatterSet[2]{};
+		VkDescriptorSet indirectSet = VK_NULL_HANDLE;
 	};
 
 	void createLayouts(RenderContext &renderCtx);
@@ -72,16 +80,19 @@ class SortPass : public Pass {
 	VkDescriptorSetLayout m_histSetLayout = VK_NULL_HANDLE;
 	VkDescriptorSetLayout m_scanSetLayout = VK_NULL_HANDLE;
 	VkDescriptorSetLayout m_scatterSetLayout = VK_NULL_HANDLE;
+	VkDescriptorSetLayout m_indirectSetLayout = VK_NULL_HANDLE;
 
 	VkPipelineLayout m_keygenLayout = VK_NULL_HANDLE;
 	VkPipelineLayout m_histLayout = VK_NULL_HANDLE;
 	VkPipelineLayout m_scanLayout = VK_NULL_HANDLE;
 	VkPipelineLayout m_scatterLayout = VK_NULL_HANDLE;
+	VkPipelineLayout m_indirectLayout = VK_NULL_HANDLE;
 
 	VkPipeline m_keygenPipeline = VK_NULL_HANDLE;
 	VkPipeline m_histPipeline = VK_NULL_HANDLE;
 	VkPipeline m_scanPipeline = VK_NULL_HANDLE;
 	VkPipeline m_scatterPipeline = VK_NULL_HANDLE;
+	VkPipeline m_indirectPipeline = VK_NULL_HANDLE;
 
 	VkDescriptorPool m_pool = VK_NULL_HANDLE;
 
