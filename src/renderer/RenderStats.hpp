@@ -17,6 +17,15 @@ struct RenderStats {
 	uint64_t gpuFrameBytes = 0;
 	uint64_t gpuSwapchainBytes = 0;
 	uint64_t gpuAllocations = 0;
+
+	// GPU pass timings (ms), smoothed.
+	float gpuBackgroundMs = 0.0f;
+	float gpuKeygenMs = 0.0f;
+	float gpuRadixMs = 0.0f;
+	float gpuRasterMs = 0.0f;
+	float gpuGuiMs = 0.0f;
+	float gpuTotalMs = 0.0f;
+	bool gpuTimingsValid = false;
 };
 
 }        // namespace renderer

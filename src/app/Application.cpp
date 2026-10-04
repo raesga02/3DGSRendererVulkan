@@ -21,6 +21,8 @@ void Application::run(int argc, char **argv) {
 		std::string arg = argv[i];
 		if (arg == "--screenshot") {
 			m_screenshotMode = true;
+		} else if (arg == "--profile") {
+			m_profileMode = true;
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
@@ -80,6 +82,14 @@ void Application::mainLoop() {
 			if (m_screenshotFrame > 33)
 				glfwSetWindowShouldClose(m_window, GLFW_TRUE);
 			++m_screenshotFrame;
+		}
+
+		if (m_profileMode) {
+			if (m_profileFrame > 90) {
+				m_renderer.logGpuTimings();
+				glfwSetWindowShouldClose(m_window, GLFW_TRUE);
+			}
+			++m_profileFrame;
 		}
 	}
 }

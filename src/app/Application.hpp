@@ -33,6 +33,9 @@ class Application {
 	bool m_screenshotMode = false;
 	int m_screenshotFrame = 0;
 
+	bool m_profileMode = false;
+	int m_profileFrame = 0;
+
   private:
 	GLFWwindow *m_window = nullptr;
 

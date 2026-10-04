@@ -13,6 +13,7 @@ class Allocator;
 namespace renderer {
 
 struct SceneState;
+class GpuProfiler;
 
 // Shared, read-only-ish services + target description handed to every pass.
 struct RenderContext {
@@ -24,6 +25,7 @@ struct RenderContext {
 	uint32_t imageCount = 0;
 
 	SceneState *sceneState = nullptr;
+	GpuProfiler *profiler = nullptr;
 };
 
 }        // namespace renderer

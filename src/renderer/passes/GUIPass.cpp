@@ -111,6 +111,20 @@ void GUIPass::newFrame(const RenderStats &stats) {
 
 	ImGui::Spacing();
 	ImGui::Separator();
+	ImGui::Text("GPU timings (ms)");
+	if (stats.gpuTimingsValid) {
+		ImGui::Text("Total   %.2f", stats.gpuTotalMs);
+		ImGui::Text("Back    %.2f", stats.gpuBackgroundMs);
+		ImGui::Text("Keygen  %.2f", stats.gpuKeygenMs);
+		ImGui::Text("Radix   %.2f", stats.gpuRadixMs);
+		ImGui::Text("Raster  %.2f", stats.gpuRasterMs);
+		ImGui::Text("GUI     %.2f", stats.gpuGuiMs);
+	} else {
+		ImGui::TextDisabled("unavailable");
+	}
+
+	ImGui::Spacing();
+	ImGui::Separator();
 	ImGui::Text("Scene");
 
 	if (!m_sceneState->availableScenes.empty()) {

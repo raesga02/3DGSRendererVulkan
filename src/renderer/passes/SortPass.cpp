@@ -2,6 +2,7 @@
 
 #include "core/Device.hpp"
 #include "gpu/Allocator.hpp"
+#include "renderer/GpuProfiler.hpp"
 #include "renderer/RenderContext.hpp"
 #include "renderer/SceneState.hpp"
 #include "utils/Shader.hpp"
@@ -283,6 +284,9 @@ void SortPass::record(RenderContext &renderCtx, const PassContext &passCtx) {
 	vkCmdDispatch(cmd, m_keygenGroups, 1, 1);
 	computeBarrier(cmd);
 
+	if (renderCtx.profiler)
+		renderCtx.profiler->write(cmd, passCtx.frameIndex, GpuSlot::Keygen);
+
 	// 2) Four stable radix passes (skipped when sorting is disabled; values
 	//    then stay as the identity permutation from keygen).
 	if (renderCtx.sceneState->sortEnabled) {
@@ -309,6 +313,9 @@ void SortPass::record(RenderContext &renderCtx, const PassContext &passCtx) {
 			computeBarrier(cmd);
 		}
 	}
+
+	if (renderCtx.profiler)
+		renderCtx.profiler->write(cmd, passCtx.frameIndex, GpuSlot::Radix);
 
 	// Make the sorted indices visible to the rasterizer's vertex shader.
 	VkMemoryBarrier barrier{

@@ -37,6 +37,9 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 		.sceneState = &m_sceneState,
 	};
 
+	m_profiler.init(device, MAX_FRAMES_IN_FLIGHT, GpuSlot::Count);
+	m_renderContext.profiler = &m_profiler;
+
 	m_backgroundPass.init(m_renderContext);
 	m_rasterizePass.init(m_renderContext);
 	m_sortPass.init(m_renderContext);
@@ -87,6 +90,8 @@ void Renderer::shutdown() {
 	m_guiPass.shutdown(m_renderContext);
 	m_rasterizePass.shutdown(m_renderContext);
 	m_backgroundPass.shutdown(m_renderContext);
+
+	m_profiler.shutdown();
 }
 
 void Renderer::createFrameBuffers() {
@@ -240,6 +245,26 @@ void Renderer::drawFrame() {
 	app::PresentFrame frame;
 	m_presentation->beginFrame(frame);
 
+	// Read the previous submission's GPU timings for this frame slot (the fence
+	// was just waited on, so the results are available without a stall).
+	if (m_profiler.valid() && m_profiler.read(frame.frameIndex, m_gpuMs)) {
+		auto ema = [](float &acc, float value) { acc = acc * 0.9f + value * 0.1f; };
+		ema(m_stats.gpuBackgroundMs, m_gpuMs[0]);
+		ema(m_stats.gpuKeygenMs, m_gpuMs[1]);
+		ema(m_stats.gpuRadixMs, m_gpuMs[2]);
+		ema(m_stats.gpuRasterMs, m_gpuMs[3]);
+		ema(m_stats.gpuGuiMs, m_gpuMs[4]);
+		float total = 0.0f;
+		for (float v : m_gpuMs)
+			total += v;
+		ema(m_stats.gpuTotalMs, total);
+		m_stats.gpuTimingsValid = true;
+
+		for (size_t i = 0; i < m_gpuMs.size() && i < GpuSlot::Count; ++i)
+			m_profileSums[i] += m_gpuMs[i];
+		++m_profileFrames;
+	}
+
 	if (m_scene.isLoaded())
 		updateCameraBuffer(frame.frameIndex);
 
@@ -251,6 +276,21 @@ void Renderer::drawFrame() {
 		captureScreenshot();
 
 	updateStats();
+}
+
+void Renderer::logGpuTimings() {
+	if (m_profileFrames == 0) {
+		utils::logInfo("GPU timings unavailable (timestamps unsupported)");
+		return;
+	}
+	float n = static_cast<float>(m_profileFrames);
+	float total = 0.0f;
+	for (uint32_t i = 0; i < GpuSlot::Count; ++i)
+		total += m_profileSums[i];
+	utils::logInfo("GPU timings (avg {} frames): bg {:.2f} | keygen {:.2f} | radix {:.2f} | raster {:.2f} | gui {:.2f} | total {:.2f} ms",
+	               m_profileFrames,
+	               m_profileSums[0] / n, m_profileSums[1] / n, m_profileSums[2] / n,
+	               m_profileSums[3] / n, m_profileSums[4] / n, total / n);
 }
 
 void Renderer::captureScreenshot() {
@@ -287,15 +327,26 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 		.extent = frame.target.extent,
 	};
 
+	if (m_profiler.valid()) {
+		m_profiler.beginFrame(frame.cmd, frame.frameIndex);
+		m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::FrameStart);
+	}
+
 	m_backgroundPass.record(m_renderContext, passCtx);
+	if (m_profiler.valid())
+		m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Background);
 
 	if (m_scene.isLoaded()) {
 		m_sortPass.record(m_renderContext, passCtx);
 		m_rasterizePass.record(m_renderContext, passCtx);
 	}
+	if (m_profiler.valid())
+		m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Raster);
 
 	if (m_sceneState.showGUI)
 		m_guiPass.record(m_renderContext, passCtx);
+	if (m_profiler.valid())
+		m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Gui);
 
 	// Hand the image to the presentation engine, optionally reading it back first.
 	if (m_sceneState.screenshotRequested && m_readbackValid) {
@@ -327,6 +378,9 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 		    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
 		    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 	}
+
+	if (m_profiler.valid())
+		m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::FrameEnd);
 }
 
 uint64_t Renderer::estimateGpuBytes(uint32_t count) const {

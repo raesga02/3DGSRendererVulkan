@@ -5,6 +5,7 @@
 #include "SceneState.hpp"
 #include "app/CameraController.hpp"
 #include "gpu/Buffer.hpp"
+#include "renderer/GpuProfiler.hpp"
 #include "renderer/passes/BackgroundPass.hpp"
 #include "renderer/passes/GUIPass.hpp"
 #include "renderer/passes/RasterizePass.hpp"
@@ -46,6 +47,7 @@ class Renderer {
 
 	void update(const app::InputState &input, float dt);
 	void drawFrame();
+	void logGpuTimings();
 
 	void loadScene(const std::string &plyPath);
 
@@ -94,6 +96,11 @@ class Renderer {
 	RasterizePass m_rasterizePass;
 	SortPass m_sortPass;
 	GUIPass m_guiPass;
+
+	GpuProfiler m_profiler;
+	std::vector<float> m_gpuMs;
+	float m_profileSums[GpuSlot::Count] = {};
+	uint32_t m_profileFrames = 0;
 
 	std::array<gpu::Buffer, MAX_FRAMES_IN_FLIGHT> m_cameraBuffers;
 
