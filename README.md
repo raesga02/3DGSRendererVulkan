@@ -8,9 +8,9 @@ INRIA `.ply` scenes and lets you fly around them in real time. The rendering
 layer is deliberately decoupled from presentation, so an OpenXR (VR/MR) path can
 be added on top without rewriting the renderer.
 
-> Status: **Phase 1 complete** — the viewer loads pretrained INRIA `.ply` scenes
-> and renders the Gaussians in real time (EWA projection, CPU depth sort,
-> instanced-quad rasterization) with orbit/fly cameras and an ImGui control panel.
+> Status: **Phase 2 (in progress)** — Phase 1 viewer plus degree-3 view-dependent
+> colour and a GPU radix sort. The room scene went from ~11 FPS to ~53 FPS.
+> Remaining Phase 2 ideas: front-to-back early-out, fp16 storage, culling.
 
 ---
 
@@ -33,7 +33,7 @@ interactive visualisation of the pipeline stages (Phase 3).
 
 ---
 
-## Current status (Phase 1)
+## Current status (Phase 2)
 
 Implemented:
 
@@ -42,19 +42,21 @@ Implemented:
 - `IPresentation` abstraction with a working `DesktopPresentation`.
 - Pass framework (`Pass`, `RenderContext`, `PassContext`).
 - `BackgroundPass` (fullscreen gradient) and `GUIPass` (Dear ImGui overlay).
-- **`PlyLoader`**: header-driven INRIA `.ply` parser (SH degree detected).
+- **`PlyLoader`**: header-driven INRIA `.ply` parser (SH degree detected);
+  `CameraLoader` reads `cameras.json` for a correct initial pose.
 - **`GaussianScene`**: pre-activation (sigmoid/exp/quaternion), CPU-precomputed
-  3D covariance, packed 52 B/Gaussian GPU buffer.
+  3D covariance, packed GPU buffer with all 48 SH coefficients.
 - **`RasterizePass` + `splat.vert/.frag`**: instanced-quad EWA projection with
-  the full 3D→2D covariance Jacobian, per-Gaussian conic and 4-sigma quads.
-- **CPU depth sort** (back-to-front) into a per-frame index buffer.
-- **Orbit + fly cameras** (`CameraController`), auto-framed from the scene, or
-  from the first training camera when `cameras.json` is present.
-- Floater filter (cull over-large screen-space splats) and splat-scale control.
-- `F12` screenshot to `saves/screenshot_NNN.png`; `--screenshot` CLI for testing.
+  the full 3D→2D covariance Jacobian and per-Gaussian conic.
+- **Degree-3 spherical harmonics** in the vertex shader (view-dependent colour).
+- **`SortPass`**: GPU LSD radix sort (keygen + 4×8-bit stable histogram/scan/
+  scatter), double-buffered per frame.
+- Orbit + fly cameras auto-framed from the scene or the first training camera.
+- Floater filter, splat-scale and SH-degree controls; `F12` screenshots.
 
-Not implemented yet: view-dependent (SH degree 3) colour, GPU sorting,
-tile-based rasterization, offscreen linear blending.
+Deferred: offscreen linear-space compositing + tonemap (would change the colour
+space relative to the 3DGS reference; revisit alongside HDR/exposure), plus
+front-to-back early-out and fp16 packing.
 
 ### Controls
 
@@ -89,11 +91,12 @@ Run with a specific scene:
 ├── shaders/
 │   ├── common/                  # shared GLSL (Gaussian layout, SH helpers)
 │   ├── background.vert/.frag    # gradient background
-│   ├── splat.vert/.frag         # instanced-quad EWA rasterization
-│   ├── project.comp             # (Phase 2) GPU projection + culling
-│   ├── keygen.comp              # (Phase 2) depth sort keys
-│   ├── radix_*.comp             # (Phase 2) histogram / scan / scatter
-│   └── composite.vert/.frag     # (Phase 2) offscreen HDR → target, tonemap
+│   ├── splat.vert/.frag         # instanced-quad EWA rasterization + SH eval
+│   ├── keygen.comp              # depth keys + identity values
+│   ├── radix_histogram.comp     # \
+│   ├── radix_scan.comp          #  } GPU LSD radix sort
+│   ├── radix_scatter.comp       # /
+│   └── composite.vert/.frag     # (deferred) offscreen → target, tonemap
 ├── scripts/
 │   ├── download_models.sh       # fetch pretrained INRIA scenes
 │   └── download_models.py       # HTTP-range extraction of one scene
@@ -130,9 +133,8 @@ Run with a specific scene:
 │   │       ├── Pass.hpp         # base pass interface
 │   │       ├── BackgroundPass.* # gradient background
 │   │       ├── GUIPass.*        # Dear ImGui overlay
-│   │       ├── RasterizePass.*  # instanced-quad splatting
-│   │       ├── ProjectPass.*    # (Phase 2) compute projection
-│   │       ├── SortPass.*       # (Phase 2) GPU radix sort
+│   │       ├── RasterizePass.*  # instanced-quad splatting + SH
+│   │       ├── SortPass.*       # GPU radix sort
 │   │       └── DebugPass.*      # (Phase 3) pipeline visualisations
 │   ├── xr/                      # Phase 4: XrContext / XrSwapchain / XrInput
 │   └── utils/
@@ -163,7 +165,7 @@ Run with a specific scene:
 |:-----:|-------------|------------|
 | **0** | ✅ Scaffold | Build system, Vulkan core, pass framework, ImGui, background |
 | **1** | ✅ Desktop splat viewer | PLY load, EWA projection, instanced-quad splats, CPU depth sort, orbit/fly cameras |
-| **2** | Real-time | Own GPU radix sort, SH degree 3, front-to-back early-out, fp16, culling |
+| **2** | ✅ Real-time (partial) | ✅ Own GPU radix sort, ✅ SH degree 3; early-out / fp16 / culling pending |
 | **3** | Own splat + teaching layer | Capture + train own `.ply`, debug/explainer views, camera-path recording |
 | **4** | VR (stretch) | OpenXR PCVR against Quest 3/Oculus, stereo rendering, controller locomotion |
 | **5** | Polish | Scene switching, performance stats, report/slides material |
