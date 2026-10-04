@@ -53,6 +53,9 @@ Implemented:
   scatter), double-buffered per frame.
 - Orbit + fly cameras auto-framed from the scene or the first training camera.
 - Floater filter, splat-scale and SH-degree controls; `F12` screenshots.
+- **Estimated GPU memory** readout in the GUI (total + scene/sort/frame/swapchain
+  breakdown) and logged on scene load; per-scene estimates shown in the picker.
+  Computed from requested buffer sizes (no driver queries).
 
 Deferred: offscreen linear-space compositing + tonemap (would change the colour
 space relative to the 3DGS reference; revisit alongside HDR/exposure), plus

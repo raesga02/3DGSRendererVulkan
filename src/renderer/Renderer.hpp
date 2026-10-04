@@ -72,11 +72,15 @@ class Renderer {
 	void recordFrame(const app::PresentFrame &frame);
 	void captureScreenshot();
 	void updateStats();
+	uint64_t estimateGpuBytes(uint32_t count) const;
 
   private:
 	core::Device *m_device = nullptr;
 	gpu::Allocator *m_allocator = nullptr;
 	app::IPresentation *m_presentation = nullptr;
+
+	VkExtent2D m_presentationExtent{};
+	uint32_t m_presentationImageCount = 0;
 
 	RenderContext m_renderContext;
 	SceneState m_sceneState;

@@ -319,6 +319,25 @@ void SortPass::record(RenderContext &renderCtx, const PassContext &passCtx) {
 	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
 }
 
+uint64_t SortPass::getGpuBytesForCount(uint32_t count) {
+	if (count == 0)
+		return 0;
+
+	uint32_t groupCount = (count + kBlockSize - 1) / kBlockSize;
+	uint32_t paddedCount = groupCount * kBlockSize;
+
+	uint64_t elementBytes = static_cast<uint64_t>(paddedCount) * sizeof(uint32_t);
+	uint64_t histBytes = static_cast<uint64_t>(groupCount) * kBuckets * sizeof(uint32_t);
+
+	// Per frame: keys[2] + values[2] + blockHist + globalEx.
+	uint64_t perFrame = 4 * elementBytes + histBytes + static_cast<uint64_t>(kBuckets) * sizeof(uint32_t);
+	return static_cast<uint64_t>(MAX_FRAMES_IN_FLIGHT) * perFrame;
+}
+
+uint64_t SortPass::getGpuBytes() const {
+	return m_allocated ? getGpuBytesForCount(m_count) : 0;
+}
+
 void SortPass::shutdown(RenderContext &renderCtx) {
 	(void) renderCtx;
 	vkDeviceWaitIdle(m_vkDevice);

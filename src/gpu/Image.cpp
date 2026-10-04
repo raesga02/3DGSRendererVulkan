@@ -1,10 +1,35 @@
 #include "Image.hpp"
+#include "MemoryTracker.hpp"
 #include <stdexcept>
 
 #include "core/Device.hpp"
 #include "utils/VulkanUtils.hpp"
 
 namespace gpu {
+
+namespace {
+
+uint64_t formatBytes(VkFormat format) {
+	switch (format) {
+		case VK_FORMAT_R32G32B32A32_SFLOAT:
+			return 16;
+		case VK_FORMAT_R16G16B16A16_SFLOAT:
+		case VK_FORMAT_R32G32_SFLOAT:
+			return 8;
+		case VK_FORMAT_R32_SFLOAT:
+		case VK_FORMAT_R8G8B8A8_UNORM:
+		case VK_FORMAT_R8G8B8A8_SRGB:
+		case VK_FORMAT_B8G8R8A8_UNORM:
+		case VK_FORMAT_B8G8R8A8_SRGB:
+			return 4;
+		case VK_FORMAT_R16_SFLOAT:
+			return 2;
+		default:
+			return 4;
+	}
+}
+
+}        // namespace
 
 void Image::init(core::Device &device, VmaAllocator allocator, VkExtent2D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags, VkImageLayout initialLayout) {
 	m_device = &device;
@@ -13,6 +38,9 @@ void Image::init(core::Device &device, VmaAllocator allocator, VkExtent2D extent
 
 	createImage(allocator, usage);
 	createImageView(aspectFlags);
+
+	memory::addImage(static_cast<uint64_t>(extent.width) * extent.height * formatBytes(format));
+	memory::addAllocation();
 
 	m_currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -24,6 +52,9 @@ void Image::init(core::Device &device, VmaAllocator allocator, VkExtent2D extent
 }
 
 void Image::shutdown(VmaAllocator allocator) {
+	memory::subImage(static_cast<uint64_t>(m_extent.width) * m_extent.height * formatBytes(m_format));
+	memory::subAllocation();
+
 	vkDestroyImageView(m_device->get(), m_imageView, nullptr);
 	vmaDestroyImage(allocator, m_image, m_allocation);
 }

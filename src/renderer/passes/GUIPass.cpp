@@ -9,9 +9,26 @@
 #include "renderer/RenderStats.hpp"
 #include "renderer/SceneState.hpp"
 
+#include <fmt/format.h>
 #include <stdexcept>
+#include <string>
 
 namespace renderer {
+
+namespace {
+
+std::string formatBytes(uint64_t bytes) {
+	static const char *units[] = { "B", "KiB", "MiB", "GiB" };
+	double value = static_cast<double>(bytes);
+	int unit = 0;
+	while (value >= 1024.0 && unit < 3) {
+		value /= 1024.0;
+		++unit;
+	}
+	return fmt::format("{:.1f} {}", value, units[unit]);
+}
+
+}        // namespace
 
 void GUIPass::init(RenderContext &renderCtx) {
 	m_sceneState = renderCtx.sceneState;
@@ -103,7 +120,12 @@ void GUIPass::newFrame(const RenderStats &stats) {
 		if (ImGui::BeginCombo("Load", preview)) {
 			for (int i = 0; i < static_cast<int>(m_sceneState->availableScenes.size()); ++i) {
 				bool selected = (m_sceneState->selectedScene == i);
-				if (ImGui::Selectable(m_sceneState->availableScenes[i].c_str(), selected)) {
+
+				std::string label = m_sceneState->availableScenes[i];
+				if (i < static_cast<int>(m_sceneState->sceneEstimatedBytes.size()))
+					label += fmt::format("  ({})", formatBytes(m_sceneState->sceneEstimatedBytes[i]));
+
+				if (ImGui::Selectable(label.c_str(), selected)) {
 					m_sceneState->selectedScene = i;
 					m_sceneState->requestedScenePath = m_sceneState->scenePaths[i];
 				}
@@ -125,6 +147,16 @@ void GUIPass::newFrame(const RenderStats &stats) {
 	ImGui::Checkbox("Cull floaters", &m_sceneState->cullLargeSplats);
 	if (m_sceneState->cullLargeSplats)
 		ImGui::SliderFloat("Max splat size", &m_sceneState->maxSplatFraction, 0.02f, 0.5f, "%.2f");
+
+	ImGui::Spacing();
+	ImGui::Separator();
+	ImGui::Text("Memory (GPU, estimated)");
+	ImGui::Text("Total      %s", formatBytes(stats.gpuTotalBytes).c_str());
+	ImGui::Text("Scene      %s", formatBytes(stats.gpuSceneBytes).c_str());
+	ImGui::Text("Sort       %s", formatBytes(stats.gpuSortBytes).c_str());
+	ImGui::Text("Frame      %s", formatBytes(stats.gpuFrameBytes).c_str());
+	ImGui::Text("Swapchain  %s", formatBytes(stats.gpuSwapchainBytes).c_str());
+	ImGui::TextDisabled("%llu allocations", static_cast<unsigned long long>(stats.gpuAllocations));
 
 	ImGui::Spacing();
 	ImGui::Separator();

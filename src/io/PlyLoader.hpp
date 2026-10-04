@@ -33,6 +33,10 @@ struct SceneMetadata {
 class PlyLoader {
   public:
 	static std::vector<scene::GaussianData> load(const std::string &path, SceneMetadata &outMeta);
+
+	// Reads only the ASCII header to get the vertex count (cheap; no body read).
+	// Returns 0 on failure.
+	static uint32_t readVertexCount(const std::string &path);
 };
 
 }        // namespace io

@@ -32,6 +32,7 @@ struct SceneState {
 	// Scene browser.
 	std::vector<std::string> availableScenes;        // display names
 	std::vector<std::string> scenePaths;             // matching full paths
+	std::vector<uint64_t> sceneEstimatedBytes;       // per-scene GPU estimate
 	int selectedScene = -1;
 	std::string requestedScenePath;                  // set to trigger a load
 

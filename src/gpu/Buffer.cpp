@@ -1,4 +1,5 @@
 #include "Buffer.hpp"
+#include "MemoryTracker.hpp"
 #include <stdexcept>
 
 #include "core/Device.hpp"
@@ -10,10 +11,20 @@ void Buffer::init(core::Device &device, VmaAllocator allocator, VkDeviceSize siz
 	m_size = size;
 
 	createBuffer(allocator, size, usage, memoryUsage, flags);
+
+	memory::addBuffer(size);
+	memory::addAllocation();
 }
 
 void Buffer::shutdown(VmaAllocator allocator) {
+	if (m_buffer == VK_NULL_HANDLE)
+		return;
+
+	memory::subBuffer(m_size);
+	memory::subAllocation();
+
 	vmaDestroyBuffer(allocator, m_buffer, m_allocation);
+	m_buffer = VK_NULL_HANDLE;
 }
 
 void Buffer::createBuffer(VmaAllocator allocator, VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, VmaAllocationCreateFlags flags) {

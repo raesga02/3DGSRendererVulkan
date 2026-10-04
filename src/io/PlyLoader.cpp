@@ -237,4 +237,31 @@ std::vector<scene::GaussianData> PlyLoader::load(const std::string &path, SceneM
 	return gaussians;
 }
 
+uint32_t PlyLoader::readVertexCount(const std::string &path) {
+	std::ifstream file(path, std::ios::binary);
+	if (!file.is_open())
+		return 0;
+
+	std::string line;
+	while (std::getline(file, line)) {
+		if (!line.empty() && line.back() == '\r')
+			line.pop_back();
+
+		std::istringstream ss(line);
+		std::string token;
+		ss >> token;
+
+		if (token == "element") {
+			std::string elementName;
+			uint64_t count = 0;
+			ss >> elementName >> count;
+			if (elementName == "vertex")
+				return static_cast<uint32_t>(count);
+		} else if (token == "end_header") {
+			break;
+		}
+	}
+	return 0;
+}
+
 }        // namespace io

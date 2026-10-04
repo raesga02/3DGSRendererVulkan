@@ -4,6 +4,7 @@
 #include "gpu/Buffer.hpp"
 
 #include <array>
+#include <cstdint>
 #include <vulkan/vulkan.h>
 
 namespace core {
@@ -29,6 +30,12 @@ class SortPass : public Pass {
 	VkBuffer getSortedIndices(uint32_t frameIndex) const {
 		return m_frames[frameIndex].values[0].get();
 	}
+
+	// Predicted sort-resource bytes for a given Gaussian count (all frames).
+	static uint64_t getGpuBytesForCount(uint32_t count);
+
+	// Actual sort-resource bytes currently allocated.
+	uint64_t getGpuBytes() const;
 
   private:
 	static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;

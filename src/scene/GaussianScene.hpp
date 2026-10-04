@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gpu/Buffer.hpp"
+#include "io/GpuSplatData.hpp"
 #include "io/PlyLoader.hpp"
 #include "scene/GaussianData.hpp"
 
@@ -32,6 +33,9 @@ class GaussianScene {
 	}
 	VkBuffer getGaussianBuffer() const {
 		return m_gaussianBuffer.get();
+	}
+	uint64_t getGpuBytes() const {
+		return static_cast<uint64_t>(m_metadata.count) * sizeof(io::GpuGaussian);
 	}
 	const io::SceneMetadata &getMetadata() const {
 		return m_metadata;

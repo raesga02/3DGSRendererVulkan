@@ -5,6 +5,8 @@
 #include "core/Device.hpp"
 #include "core/VulkanContext.hpp"
 #include "gpu/Allocator.hpp"
+#include "gpu/MemoryTracker.hpp"
+#include "io/GpuSplatData.hpp"
 #include "utils/Log.hpp"
 #include "utils/VulkanUtils.hpp"
 
@@ -23,6 +25,8 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 	m_device = &device;
 	m_allocator = &allocator;
 	m_presentation = &presentation;
+	m_presentationExtent = presentation.extent();
+	m_presentationImageCount = presentation.imageCount();
 
 	m_renderContext = RenderContext{
 		.device = &device,
@@ -110,6 +114,7 @@ void Renderer::createFrameBuffers() {
 void Renderer::scanScenes() {
 	m_sceneState.availableScenes.clear();
 	m_sceneState.scenePaths.clear();
+	m_sceneState.sceneEstimatedBytes.clear();
 
 #ifdef SCENE_MODELS_DIR
 	const std::filesystem::path root = SCENE_MODELS_DIR;
@@ -135,6 +140,9 @@ void Renderer::scanScenes() {
 	for (auto &[name, path] : found) {
 		m_sceneState.availableScenes.push_back(name);
 		m_sceneState.scenePaths.push_back(path);
+
+		uint32_t count = io::PlyLoader::readVertexCount(path);
+		m_sceneState.sceneEstimatedBytes.push_back(estimateGpuBytes(count));
 	}
 
 	utils::logInfo("Found {} scene(s) in {}", found.size(), root.string());
@@ -179,6 +187,13 @@ void Renderer::loadScene(const std::string &plyPath) {
 
 	utils::logInfo("Loaded scene '{}': {} Gaussians, SH degree {}, radius {:.2f}",
 	               m_sceneState.currentSceneName, count, meta.shDegree, meta.radius);
+
+	auto mib = [](uint64_t bytes) { return static_cast<double>(bytes) / (1024.0 * 1024.0); };
+	uint64_t swapchainBytes = static_cast<uint64_t>(m_presentationImageCount) *
+	                          m_presentationExtent.width * m_presentationExtent.height * 4;
+	utils::logInfo("Estimated GPU memory: {:.1f} MiB (scene {:.1f}, sort {:.1f}, swapchain {:.1f})",
+	               mib(estimateGpuBytes(count)), mib(m_scene.getGpuBytes()),
+	               mib(m_sortPass.getGpuBytes()), mib(swapchainBytes));
 }
 
 void Renderer::update(const app::InputState &input, float dt) {
@@ -314,6 +329,15 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 	}
 }
 
+uint64_t Renderer::estimateGpuBytes(uint32_t count) const {
+	uint64_t scene = static_cast<uint64_t>(count) * sizeof(io::GpuGaussian);
+	uint64_t sort = SortPass::getGpuBytesForCount(count);
+	uint64_t pixels = static_cast<uint64_t>(m_presentationExtent.width) * m_presentationExtent.height;
+	uint64_t frame = 2 * sizeof(CameraUbo) + pixels * 4;
+	uint64_t swapchain = static_cast<uint64_t>(m_presentationImageCount) * pixels * 4;
+	return scene + sort + frame + swapchain;
+}
+
 void Renderer::updateStats() {
 	auto now = std::chrono::steady_clock::now();
 	float ms = std::chrono::duration<float, std::milli>(now - m_lastFrameTime).count();
@@ -321,6 +345,14 @@ void Renderer::updateStats() {
 
 	m_stats.cpuFrameMs = ms;
 	m_stats.fps = ms > 0.0f ? 1000.0f / ms : 0.0f;
+
+	uint64_t pixels = static_cast<uint64_t>(m_presentationExtent.width) * m_presentationExtent.height;
+	m_stats.gpuSceneBytes = m_scene.isLoaded() ? m_scene.getGpuBytes() : 0;
+	m_stats.gpuSortBytes = m_sortPass.getGpuBytes();
+	m_stats.gpuFrameBytes = 2 * sizeof(CameraUbo) + pixels * 4;
+	m_stats.gpuSwapchainBytes = static_cast<uint64_t>(m_presentationImageCount) * pixels * 4;
+	m_stats.gpuTotalBytes = gpu::memory::totalBytes();
+	m_stats.gpuAllocations = gpu::memory::allocations();
 }
 
 bool Renderer::wantsCaptureMouse() const {
