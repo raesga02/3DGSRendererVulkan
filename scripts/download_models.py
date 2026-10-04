@@ -138,6 +138,11 @@ def matches_scene(scene: str, fname: str) -> bool:
     )
 
 
+def matches_cameras(scene: str, fname: str) -> bool:
+    parts = fname.strip("/").split("/")
+    return scene in parts and parts[-1] == "cameras.json"
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="Download pretrained INRIA 3DGS scenes.")
     p.add_argument("--scenes", nargs="+")
@@ -178,6 +183,15 @@ def main() -> None:
         with open(dest, "wb") as f:
             f.write(data)
         print(f"    -> {dest} ({len(data) / 1e6:.1f} MB)")
+
+        # Also grab cameras.json (training poses) for a good initial view.
+        cam_matches = [e for e in entries if matches_cameras(scene, e[0])]
+        if cam_matches:
+            cf, coff, csize = max(cam_matches, key=lambda e: len(e[0]))
+            cam_dest = os.path.join(out_dir, "cameras.json")
+            with open(cam_dest, "wb") as f:
+                f.write(extract_file(MODELS_ZIP_URL, coff, csize))
+            print(f"    -> {cam_dest}")
 
 
 if __name__ == "__main__":

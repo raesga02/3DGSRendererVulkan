@@ -41,7 +41,7 @@ class DesktopPresentation : public IPresentation {
 	}
 
   private:
-	static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+	static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = kMaxFramesInFlight;
 
 	struct FrameData {
 		VkCommandPool commandPool = VK_NULL_HANDLE;

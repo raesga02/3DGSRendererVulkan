@@ -8,9 +8,9 @@ INRIA `.ply` scenes and lets you fly around them in real time. The rendering
 layer is deliberately decoupled from presentation, so an OpenXR (VR/MR) path can
 be added on top without rewriting the renderer.
 
-> Status: **Phase 0 complete** — project scaffolding, build system and a running
-> Vulkan application (clear/gradient background + Dear ImGui overlay). No splats
-> are drawn yet; that starts in Phase 1.
+> Status: **Phase 1 complete** — the viewer loads pretrained INRIA `.ply` scenes
+> and renders the Gaussians in real time (EWA projection, CPU depth sort,
+> instanced-quad rasterization) with orbit/fly cameras and an ImGui control panel.
 
 ---
 
@@ -33,7 +33,7 @@ interactive visualisation of the pipeline stages (Phase 3).
 
 ---
 
-## Current status (Phase 0)
+## Current status (Phase 1)
 
 Implemented:
 
@@ -42,10 +42,38 @@ Implemented:
 - `IPresentation` abstraction with a working `DesktopPresentation`.
 - Pass framework (`Pass`, `RenderContext`, `PassContext`).
 - `BackgroundPass` (fullscreen gradient) and `GUIPass` (Dear ImGui overlay).
-- `scene::GaussianData` / `scene::Camera` / `utils::Math` primitives for Phase 1.
-- Dataset download helper (`scripts/download_models.sh`).
+- **`PlyLoader`**: header-driven INRIA `.ply` parser (SH degree detected).
+- **`GaussianScene`**: pre-activation (sigmoid/exp/quaternion), CPU-precomputed
+  3D covariance, packed 52 B/Gaussian GPU buffer.
+- **`RasterizePass` + `splat.vert/.frag`**: instanced-quad EWA projection with
+  the full 3D→2D covariance Jacobian, per-Gaussian conic and 4-sigma quads.
+- **CPU depth sort** (back-to-front) into a per-frame index buffer.
+- **Orbit + fly cameras** (`CameraController`), auto-framed from the scene, or
+  from the first training camera when `cameras.json` is present.
+- Floater filter (cull over-large screen-space splats) and splat-scale control.
+- `F12` screenshot to `saves/screenshot_NNN.png`; `--screenshot` CLI for testing.
 
-Not implemented yet: PLY loading, projection, sorting, rasterization.
+Not implemented yet: view-dependent (SH degree 3) colour, GPU sorting,
+tile-based rasterization, offscreen linear blending.
+
+### Controls
+
+| Input | Action |
+|---|---|
+| Left-drag | Orbit rotate (`Orbit` mode) |
+| Scroll | Zoom (`Orbit` mode) |
+| Right-drag | Look around (`Fly` mode) |
+| `W A S D` / `Q E` / `Shift` | Move / down-up / fast (`Fly` mode) |
+| `Tab` | Toggle Orbit ↔ Fly |
+| `H` | Toggle GUI |
+| `F12` | Save screenshot |
+| `Esc` | Quit |
+
+Run with a specific scene:
+
+```bash
+./build/3DGSRendererVulkan assets/models/counter/point_cloud.ply
+```
 
 ---
 
@@ -55,19 +83,17 @@ Not implemented yet: PLY loading, projection, sorting, rasterization.
 3DGSRendererVulkan/
 ├── CMakeLists.txt              # Vulkan, shader compile, submodules, asset copy
 ├── external/                   # git submodules (pinned)
-│   ├── glfw/ glm/ fmt/ imgui/ vma/ vk-bootstrap/ stb/
-│   └── tinyply/                 # .ply parsing (Phase 1)
+│   └── glfw/ glm/ fmt/ imgui/ vma/ vk-bootstrap/ stb/
 ├── assets/
 │   └── models/                  # downloaded .ply scenes (git-ignored)
 ├── shaders/
 │   ├── common/                  # shared GLSL (Gaussian layout, SH helpers)
-│   ├── background.vert/.frag    # Phase 0 gradient
-│   ├── project.comp             # Phase 1: EWA projection + culling
-│   ├── keygen.comp              # Phase 2: depth sort keys
-│   ├── radix_*.comp             # Phase 2: histogram / scan / scatter
-│   ├── tile_ranges.comp         # Phase 2 (optional): per-tile ranges
-│   ├── splat.vert/.frag         # Phase 1: instanced-quad rasterization
-│   └── composite.vert/.frag     # Phase 2: offscreen HDR → target, tonemap
+│   ├── background.vert/.frag    # gradient background
+│   ├── splat.vert/.frag         # instanced-quad EWA rasterization
+│   ├── project.comp             # (Phase 2) GPU projection + culling
+│   ├── keygen.comp              # (Phase 2) depth sort keys
+│   ├── radix_*.comp             # (Phase 2) histogram / scan / scatter
+│   └── composite.vert/.frag     # (Phase 2) offscreen HDR → target, tonemap
 ├── scripts/
 │   ├── download_models.sh       # fetch pretrained INRIA scenes
 │   └── download_models.py       # HTTP-range extraction of one scene
@@ -75,6 +101,7 @@ Not implemented yet: PLY loading, projection, sorting, rasterization.
 │   ├── main.cpp
 │   ├── app/
 │   │   ├── Application.*        # window, main loop, input, lifecycle
+│   │   ├── CameraController.*   # orbit + fly cameras
 │   │   ├── InputState.hpp       # desktop + XR unified input snapshot
 │   │   ├── IPresentation.hpp    # "where pixels go" interface (desktop/XR)
 │   │   └── DesktopPresentation.*# swapchain + per-frame sync (GLFW/Vulkan)
@@ -86,11 +113,14 @@ Not implemented yet: PLY loading, projection, sorting, rasterization.
 │   │   ├── Allocator.*          # VMA
 │   │   ├── Buffer.*             # VMA-backed buffer
 │   │   └── Image.*              # VMA-backed image + layout tracking
-│   ├── io/                      # Phase 1: PlyLoader / SplatLoader / GpuSplatData
+│   ├── io/
+│   │   ├── PlyLoader.*          # INRIA .ply parser
+│   │   ├── CameraLoader.*       # cameras.json (initial pose)
+│   │   └── GpuSplatData.hpp     # packed GPU Gaussian (std430)
 │   ├── scene/
 │   │   ├── GaussianData.hpp     # POD: pos, scale, rot, opacity, SH
 │   │   ├── Camera.*             # view/projection
-│   │   └── GaussianScene.*      # Phase 1: Gaussians, AABB, GPU buffers
+│   │   └── GaussianScene.*      # Gaussians, metadata, GPU buffers
 │   ├── renderer/
 │   │   ├── Renderer.*           # frame orchestration, pass scheduling
 │   │   ├── RenderContext.hpp    # shared services + target info
@@ -98,12 +128,12 @@ Not implemented yet: PLY loading, projection, sorting, rasterization.
 │   │   ├── RenderStats.hpp      # fps / frame time
 │   │   └── passes/
 │   │       ├── Pass.hpp         # base pass interface
-│   │       ├── BackgroundPass.* # Phase 0
+│   │       ├── BackgroundPass.* # gradient background
 │   │       ├── GUIPass.*        # Dear ImGui overlay
-│   │       ├── ProjectPass.*    # Phase 1
-│   │       ├── SortPass.*       # Phase 2
-│   │       ├── RasterizePass.*  # Phase 1/2
-│   │       └── DebugPass.*      # Phase 3: pipeline visualisations
+│   │       ├── RasterizePass.*  # instanced-quad splatting
+│   │       ├── ProjectPass.*    # (Phase 2) compute projection
+│   │       ├── SortPass.*       # (Phase 2) GPU radix sort
+│   │       └── DebugPass.*      # (Phase 3) pipeline visualisations
 │   ├── xr/                      # Phase 4: XrContext / XrSwapchain / XrInput
 │   └── utils/
 │       ├── Shader.*             # SPIR-V module loading
@@ -132,7 +162,7 @@ Not implemented yet: PLY loading, projection, sorting, rasterization.
 | Phase | Deliverable | Highlights |
 |:-----:|-------------|------------|
 | **0** | ✅ Scaffold | Build system, Vulkan core, pass framework, ImGui, background |
-| **1** | Desktop splat viewer | PLY load, EWA projection, instanced-quad splats, CPU depth sort, orbit camera |
+| **1** | ✅ Desktop splat viewer | PLY load, EWA projection, instanced-quad splats, CPU depth sort, orbit/fly cameras |
 | **2** | Real-time | Own GPU radix sort, SH degree 3, front-to-back early-out, fp16, culling |
 | **3** | Own splat + teaching layer | Capture + train own `.ply`, debug/explainer views, camera-path recording |
 | **4** | VR (stretch) | OpenXR PCVR against Quest 3/Oculus, stereo rendering, controller locomotion |
@@ -177,7 +207,7 @@ cmake --build build -j"$(nproc)"
 ./build/3DGSRendererVulkan
 ```
 
-Controls (Phase 0): `H` toggles the GUI, `Esc` quits.
+See the **Controls** table above. Pass a scene path to load a specific `.ply`.
 
 ---
 
@@ -223,5 +253,4 @@ Other sources:
 - `nvpro-samples/vk_gaussian_splatting` — Vulkan 3DGS testbed (Apache-2.0).
 
 Third-party libraries are vendored as submodules and keep their original
-licenses (`glfw`, `glm`, `fmt`, `imgui`, `vk-bootstrap`, `VMA`, `stb`,
-`tinyply`).
+licenses (`glfw`, `glm`, `fmt`, `imgui`, `vk-bootstrap`, `VMA`, `stb`).

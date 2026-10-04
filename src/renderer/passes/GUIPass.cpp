@@ -84,22 +84,64 @@ void GUIPass::newFrame(const RenderStats &stats) {
 	ImGui::NewFrame();
 
 	ImGui::SetNextWindowPos(ImVec2(16.0f, 16.0f), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowSize(ImVec2(320.0f, 0.0f), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(340.0f, 0.0f), ImGuiCond_FirstUseEver);
 	ImGui::Begin("3DGS Renderer (Vulkan)");
 
-	ImGui::Text("Phase 0 - scaffold");
-	ImGui::Separator();
+	ImGui::Text("Scene: %s", m_sceneState->currentSceneName.empty() ? "(none)" : m_sceneState->currentSceneName.c_str());
+	ImGui::Text("Gaussians: %u", m_sceneState->gaussianCount);
+	ImGui::Text("SH degree: %d", m_sceneState->shDegree);
 	ImGui::Text("Frame: %.2f ms (%.1f FPS)", stats.cpuFrameMs, stats.fps);
 
 	ImGui::Spacing();
+	ImGui::Separator();
+	ImGui::Text("Scene");
+
+	if (!m_sceneState->availableScenes.empty()) {
+		const char *preview = m_sceneState->selectedScene >= 0
+		                          ? m_sceneState->availableScenes[m_sceneState->selectedScene].c_str()
+		                          : m_sceneState->currentSceneName.c_str();
+		if (ImGui::BeginCombo("Load", preview)) {
+			for (int i = 0; i < static_cast<int>(m_sceneState->availableScenes.size()); ++i) {
+				bool selected = (m_sceneState->selectedScene == i);
+				if (ImGui::Selectable(m_sceneState->availableScenes[i].c_str(), selected)) {
+					m_sceneState->selectedScene = i;
+					m_sceneState->requestedScenePath = m_sceneState->scenePaths[i];
+				}
+			}
+			ImGui::EndCombo();
+		}
+	} else {
+		ImGui::TextDisabled("No scenes found in assets/models/");
+	}
+
+	ImGui::Spacing();
+	ImGui::Separator();
+	ImGui::Text("Rendering");
+	ImGui::SliderFloat("Splat scale", &m_sceneState->splatScale, 0.1f, 3.0f, "%.2f");
+	ImGui::Checkbox("Depth sort", &m_sceneState->sortEnabled);
+	ImGui::Checkbox("Cull floaters", &m_sceneState->cullLargeSplats);
+	if (m_sceneState->cullLargeSplats)
+		ImGui::SliderFloat("Max splat size", &m_sceneState->maxSplatFraction, 0.02f, 0.5f, "%.2f");
+
+	ImGui::Spacing();
+	ImGui::Separator();
+	ImGui::Text("Camera: %s", m_sceneState->cameraMode == 0 ? "Orbit" : "Fly");
+	if (ImGui::Button("Toggle camera (Tab)"))
+		m_sceneState->cameraToggleRequested = true;
+
+	ImGui::Spacing();
+	ImGui::Separator();
 	ImGui::Text("Background");
 	ImGui::ColorEdit3("Top", &m_sceneState->backgroundColorTop.x);
 	ImGui::ColorEdit3("Bottom", &m_sceneState->backgroundColorBottom.x);
 
 	ImGui::Spacing();
 	ImGui::Separator();
-	ImGui::TextWrapped("Next: load an INRIA .ply and render Gaussians.");
-	ImGui::TextWrapped("[H] toggle GUI    [Esc] quit");
+	if (m_sceneState->cameraMode == 0)
+		ImGui::TextWrapped("Orbit: drag to rotate, scroll to zoom.");
+	else
+		ImGui::TextWrapped("Fly: right-drag to look, WASD move, Q/E down/up, Shift = fast.");
+	ImGui::TextWrapped("[Tab] camera   [H] GUI   [Esc] quit");
 
 	ImGui::End();
 }

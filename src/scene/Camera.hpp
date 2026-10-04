@@ -11,6 +11,16 @@ class Camera {
 	void setPerspective(float fovYDegrees, float aspect, float zNear, float zFar);
 	void setView(const glm::vec3 &eye, const glm::vec3 &center, const glm::vec3 &up);
 
+	void setViewMatrix(const glm::mat4 &view) {
+		m_view = view;
+	}
+	void setProjectionMatrix(const glm::mat4 &projection) {
+		m_projection = projection;
+	}
+	void setPosition(const glm::vec3 &position) {
+		m_position = position;
+	}
+
 	const glm::mat4 &getView() const {
 		return m_view;
 	}

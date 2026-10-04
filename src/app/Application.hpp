@@ -7,6 +7,9 @@
 #include "gpu/Allocator.hpp"
 #include "renderer/Renderer.hpp"
 
+#include <chrono>
+#include <string>
+
 struct GLFWwindow;
 
 namespace app {
@@ -14,17 +17,21 @@ namespace app {
 // Owns the platform window, the shared Vulkan services and the main loop.
 class Application {
   public:
-	void run();
+	void run(int argc, char **argv);
+
+  private:
+	void init(const std::string &initialScene);
+	void initWindow();
+	void mainLoop();
+	void updateInput();
+	void shutdown();
 
   private:
 	int m_windowWidth = 1600;
 	int m_windowHeight = 900;
 
-	void init();
-	void initWindow();
-	void mainLoop();
-	void updateInput();
-	void shutdown();
+	bool m_screenshotMode = false;
+	int m_screenshotFrame = 0;
 
   private:
 	GLFWwindow *m_window = nullptr;
@@ -36,7 +43,13 @@ class Application {
 	renderer::Renderer m_renderer;
 
 	InputState m_inputState;
+	double m_lastMouseX = 0.0;
+	double m_lastMouseY = 0.0;
+	bool m_prevToggleCamera = false;
 	bool m_prevGuiToggle = false;
+	bool m_prevScreenshot = false;
+
+	std::chrono::steady_clock::time_point m_lastFrameTime{};
 };
 
 }        // namespace app

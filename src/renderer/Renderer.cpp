@@ -1,16 +1,35 @@
 #include "Renderer.hpp"
 
 #include "app/IPresentation.hpp"
+#include "app/InputState.hpp"
 #include "core/Device.hpp"
 #include "core/VulkanContext.hpp"
 #include "gpu/Allocator.hpp"
+#include "utils/Log.hpp"
 #include "utils/VulkanUtils.hpp"
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
+#include <algorithm>
+#include <cstring>
+#include <filesystem>
+#include <fmt/format.h>
 #include <stdexcept>
 
 namespace renderer {
 
-void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::VulkanContext &context, app::IPresentation &presentation, GLFWwindow *window) {
+namespace {
+
+uint32_t floatToSortableUint(float f) {
+	uint32_t u = 0;
+	std::memcpy(&u, &f, sizeof(u));
+	return (u & 0x80000000u) ? ~u : (u | 0x80000000u);
+}
+
+}        // namespace
+
+void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::VulkanContext &context, app::IPresentation &presentation, GLFWwindow *window, const std::string &initialScene) {
 	m_device = &device;
 	m_allocator = &allocator;
 	m_presentation = &presentation;
@@ -25,6 +44,7 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 	};
 
 	m_backgroundPass.init(m_renderContext);
+	m_rasterizePass.init(m_renderContext);
 	m_guiPass.init(m_renderContext);
 
 	core::SwapchainInfo swapchainInfo{
@@ -34,14 +54,192 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 	};
 	m_guiPass.initVulkan(window, context, device, allocator, swapchainInfo, m_sceneState);
 
+	createFrameBuffers();
+	scanScenes();
+
+	// Load the requested scene, or a default if one is available.
+	if (!initialScene.empty() && std::filesystem::exists(initialScene)) {
+		loadScene(initialScene);
+	} else if (!m_sceneState.scenePaths.empty()) {
+		loadScene(m_sceneState.scenePaths.front());
+	}
+
 	m_lastFrameTime = std::chrono::steady_clock::now();
 }
 
 void Renderer::shutdown() {
 	vkDeviceWaitIdle(m_device->get());
 
+	for (auto &buffer : m_cameraBuffers)
+		buffer.shutdown(m_allocator->get());
+
+	if (m_readbackValid) {
+		m_readbackBuffer.shutdown(m_allocator->get());
+		m_readbackValid = false;
+	}
+
+	if (m_scene.isLoaded()) {
+		for (auto &buffer : m_indexBuffers)
+			buffer.shutdown(m_allocator->get());
+		m_scene.shutdown(*m_allocator);
+	}
+
 	m_guiPass.shutdown(m_renderContext);
+	m_rasterizePass.shutdown(m_renderContext);
 	m_backgroundPass.shutdown(m_renderContext);
+}
+
+void Renderer::createFrameBuffers() {
+	VkDeviceSize uboSize = sizeof(CameraUbo);
+	for (auto &buffer : m_cameraBuffers) {
+		buffer.init(
+		    *m_device, m_allocator->get(), uboSize,
+		    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+		    VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+		    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+	}
+
+	VkExtent2D extent = m_presentation->extent();
+	m_readbackWidth = extent.width;
+	m_readbackHeight = extent.height;
+	VkDeviceSize readbackSize = static_cast<VkDeviceSize>(extent.width) * extent.height * 4;
+	m_readbackBuffer.init(
+	    *m_device, m_allocator->get(), readbackSize,
+	    VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+	    VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+	    VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+	m_readbackValid = true;
+}
+
+void Renderer::scanScenes() {
+	m_sceneState.availableScenes.clear();
+	m_sceneState.scenePaths.clear();
+
+	const std::filesystem::path root = "assets/models";
+	if (!std::filesystem::exists(root))
+		return;
+
+	for (const auto &entry : std::filesystem::directory_iterator(root)) {
+		if (!entry.is_directory())
+			continue;
+		std::filesystem::path ply = entry.path() / "point_cloud.ply";
+		if (!std::filesystem::exists(ply))
+			continue;
+
+		m_sceneState.availableScenes.push_back(entry.path().filename().string());
+		m_sceneState.scenePaths.push_back(ply.string());
+	}
+}
+
+void Renderer::loadScene(const std::string &plyPath) {
+	vkDeviceWaitIdle(m_device->get());
+
+	if (m_scene.isLoaded()) {
+		for (auto &buffer : m_indexBuffers)
+			buffer.shutdown(m_allocator->get());
+		m_scene.shutdown(*m_allocator);
+	}
+
+	m_scene.init(*m_device, *m_allocator, plyPath);
+
+	uint32_t count = m_scene.getCount();
+	m_sortKeys.resize(count);
+	m_sortedIndices.resize(count);
+
+	VkDeviceSize indexBytes = static_cast<VkDeviceSize>(count) * sizeof(uint32_t);
+	for (auto &buffer : m_indexBuffers) {
+		buffer.init(
+		    *m_device, m_allocator->get(), indexBytes,
+		    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		    VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+		    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+	}
+
+	const io::SceneMetadata &meta = m_scene.getMetadata();
+	if (meta.hasCamera)
+		m_cameraController.frameFromCamera(meta.cameraPosition, meta.cameraForward, meta.cameraUp, meta.radius);
+	else
+		m_cameraController.frame(meta.center, meta.radius);
+
+	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> indexHandles;
+	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> cameraHandles;
+	for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+		indexHandles[i] = m_indexBuffers[i].get();
+		cameraHandles[i] = m_cameraBuffers[i].get();
+	}
+	m_rasterizePass.bind(m_scene.getGaussianBuffer(), indexHandles, cameraHandles, count);
+
+	// Derive a display name from the containing directory.
+	std::filesystem::path p(plyPath);
+	m_sceneState.currentSceneName = p.parent_path().filename().string();
+	m_sceneState.gaussianCount = count;
+	m_sceneState.shDegree = meta.shDegree;
+	m_sceneState.sceneDirty = true;
+
+	utils::logInfo("Loaded scene '{}': {} Gaussians, SH degree {}, radius {:.2f}",
+	               m_sceneState.currentSceneName, count, meta.shDegree, meta.radius);
+}
+
+void Renderer::update(const app::InputState &input, float dt) {
+	if (!m_sceneState.requestedScenePath.empty()) {
+		std::string requested = m_sceneState.requestedScenePath;
+		m_sceneState.requestedScenePath.clear();
+		loadScene(requested);
+	}
+
+	if (input.toggleCamera || m_sceneState.cameraToggleRequested) {
+		m_sceneState.cameraToggleRequested = false;
+		m_cameraController.toggleMode();
+		m_sceneState.cameraMode = (m_cameraController.getMode() == app::CameraController::Mode::Fly) ? 1 : 0;
+	}
+
+	m_cameraController.update(input, dt);
+
+	VkExtent2D extent = m_presentation->extent();
+	float aspect = extent.height > 0 ? static_cast<float>(extent.width) / static_cast<float>(extent.height) : 1.0f;
+	m_cameraController.apply(m_camera, aspect);
+}
+
+void Renderer::updateSortedIndices() {
+	uint32_t count = m_scene.getCount();
+	const auto &cpu = m_scene.getCpuGaussians();
+	const glm::mat4 &view = m_camera.getView();
+
+	const glm::vec4 rowZ = view[2];
+
+	if (!m_sceneState.sortEnabled) {
+		for (uint32_t i = 0; i < count; ++i)
+			m_sortedIndices[i] = i;
+		return;
+	}
+
+	for (uint32_t i = 0; i < count; ++i) {
+		const float *p = cpu[i].position;
+		float z = rowZ.x * p[0] + rowZ.y * p[1] + rowZ.z * p[2] + rowZ.w;
+		m_sortKeys[i] = (static_cast<uint64_t>(floatToSortableUint(z)) << 32) | i;
+	}
+
+	std::sort(m_sortKeys.begin(), m_sortKeys.end());
+
+	for (uint32_t i = 0; i < count; ++i)
+		m_sortedIndices[i] = static_cast<uint32_t>(m_sortKeys[i] & 0xFFFFFFFFull);
+}
+
+void Renderer::updateCameraBuffer(uint32_t frameIndex) {
+	VkExtent2D extent = m_presentation->extent();
+
+	CameraUbo ubo{};
+	ubo.view = m_camera.getView();
+	ubo.proj = m_camera.getProjection();
+	ubo.viewport = glm::vec4(
+	    static_cast<float>(extent.width),
+	    static_cast<float>(extent.height),
+	    1.0f / static_cast<float>(extent.width),
+	    1.0f / static_cast<float>(extent.height));
+	glm::vec3 pos = m_camera.getPosition();
+	ubo.cameraPos = glm::vec4(pos, 1.0f);
+
+	std::memcpy(m_cameraBuffers[frameIndex].getMappedData(), &ubo, sizeof(CameraUbo));
 }
 
 void Renderer::drawFrame() {
@@ -51,11 +249,47 @@ void Renderer::drawFrame() {
 	app::PresentFrame frame;
 	m_presentation->beginFrame(frame);
 
+	if (m_scene.isLoaded()) {
+		updateSortedIndices();
+		std::memcpy(
+		    m_indexBuffers[frame.frameIndex].getMappedData(),
+		    m_sortedIndices.data(),
+		    m_sortedIndices.size() * sizeof(uint32_t));
+		updateCameraBuffer(frame.frameIndex);
+	}
+
 	recordFrame(frame);
 
 	m_presentation->endFrame(frame);
 
+	if (m_sceneState.screenshotRequested && m_readbackValid)
+		captureScreenshot();
+
 	updateStats();
+}
+
+void Renderer::captureScreenshot() {
+	vkQueueWaitIdle(m_device->getGraphicsQueue());
+
+	std::filesystem::create_directories("saves");
+	m_readbackBuffer.invalidate(m_allocator->get());
+
+	const uint8_t *src = static_cast<const uint8_t *>(m_readbackBuffer.getMappedData());
+	size_t pixelCount = static_cast<size_t>(m_readbackWidth) * m_readbackHeight;
+	std::vector<uint8_t> rgba(pixelCount * 4);
+	for (size_t i = 0; i < pixelCount; ++i) {
+		// Swapchain is BGRA; PNG wants RGBA.
+		rgba[i * 4 + 0] = src[i * 4 + 2];
+		rgba[i * 4 + 1] = src[i * 4 + 1];
+		rgba[i * 4 + 2] = src[i * 4 + 0];
+		rgba[i * 4 + 3] = src[i * 4 + 3];
+	}
+
+	std::string path = fmt::format("saves/screenshot_{:03d}.png", m_sceneState.screenshotCounter++);
+	stbi_write_png(path.c_str(), static_cast<int>(m_readbackWidth), static_cast<int>(m_readbackHeight), 4, rgba.data(), static_cast<int>(m_readbackWidth) * 4);
+	utils::logInfo("Saved screenshot {}", path);
+
+	m_sceneState.screenshotRequested = false;
 }
 
 void Renderer::recordFrame(const app::PresentFrame &frame) {
@@ -70,15 +304,42 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 
 	m_backgroundPass.record(m_renderContext, passCtx);
 
+	if (m_scene.isLoaded())
+		m_rasterizePass.record(m_renderContext, passCtx);
+
 	if (m_sceneState.showGUI)
 		m_guiPass.record(m_renderContext, passCtx);
 
-	// Hand the image to the presentation engine.
-	utils::vk::transitionImage(
-	    frame.cmd, frame.target.image,
-	    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-	    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
-	    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+	// Hand the image to the presentation engine, optionally reading it back first.
+	if (m_sceneState.screenshotRequested && m_readbackValid) {
+		utils::vk::transitionImage(
+		    frame.cmd, frame.target.image,
+		    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+		    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+		VkBufferImageCopy region{
+			.bufferOffset = 0,
+			.bufferRowLength = 0,
+			.bufferImageHeight = 0,
+			.imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
+			.imageOffset = { 0, 0, 0 },
+			.imageExtent = { frame.target.extent.width, frame.target.extent.height, 1 },
+		};
+		vkCmdCopyImageToBuffer(frame.cmd, frame.target.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_readbackBuffer.get(), 1, &region);
+
+		utils::vk::transitionImage(
+		    frame.cmd, frame.target.image,
+		    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		    VK_ACCESS_TRANSFER_READ_BIT, 0,
+		    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+	} else {
+		utils::vk::transitionImage(
+		    frame.cmd, frame.target.image,
+		    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
+		    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+	}
 }
 
 void Renderer::updateStats() {

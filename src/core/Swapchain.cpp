@@ -26,6 +26,7 @@ void Swapchain::createSwapchain(Device &device, uint32_t width, uint32_t height)
 	                    .set_desired_format(VkSurfaceFormatKHR{
 	                        .format = VK_FORMAT_B8G8R8A8_SRGB,
 	                        .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR })
+	                    .set_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
 	                    .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
 	                    .build();
 	if (!swap_ret)

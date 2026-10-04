@@ -4,6 +4,10 @@
 
 namespace app {
 
+// Number of frames the CPU may run ahead of the GPU. Shared so per-frame
+// resources (UBOs, index buffers, descriptor sets) line up everywhere.
+inline constexpr uint32_t kMaxFramesInFlight = 2;
+
 // A colour target the renderer can draw into for one frame. For desktop this
 // is a swapchain image; for OpenXR (Phase 4) it will be a per-eye image.
 struct PresentTarget {

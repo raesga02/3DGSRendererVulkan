@@ -58,7 +58,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     "${CMAKE_SOURCE_DIR}/src"
     "${CMAKE_SOURCE_DIR}/external/vma/include"
     "${CMAKE_SOURCE_DIR}/external/stb"
-    "${CMAKE_SOURCE_DIR}/external/tinyply/source"
     "${IMGUI_DIR}"
     "${IMGUI_DIR}/backends"
 )
