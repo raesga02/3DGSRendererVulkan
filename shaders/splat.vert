@@ -130,10 +130,12 @@ void main() {
     vec3 ndc = clip.xyz / clip.w;
     vCenter = ndc.xy;
 
-    // Quad half-size = 4 sigma (major axis) in pixels -> NDC.
+    // Quad half-size = 4 sigma. Use the tight axis-aligned bounding box of the
+    // ellipse (per-axis extents), not a square sized by the major axis, to cut
+    // fragment overdraw for anisotropic splats.
     float mid = 0.5 * (a + c);
     float term = sqrt(max(0.1, mid * mid - (a * c - b * b)));
-    float radiusPx = 4.0 * sqrt(max(mid + term, 1e-4));
+    float radiusPx = 4.0 * sqrt(max(mid + term, 1e-4));        // major axis, for the floater filter
 
     // Floater filter: drop Gaussians whose screen footprint is absurdly large.
     if (pc.maxRadiusFraction > 0.0) {
@@ -148,8 +150,10 @@ void main() {
         }
     }
 
-    vec2 radiusNdc = vec2(radiusPx * 2.0 * camera.viewport.z,
-                          radiusPx * 2.0 * camera.viewport.w);
+    float extX = 4.0 * sqrt(max(a, 1e-6));
+    float extY = 4.0 * sqrt(max(c, 1e-6));
+    vec2 radiusNdc = vec2(extX * 2.0 * camera.viewport.z,
+                          extY * 2.0 * camera.viewport.w);
 
     vec2 quad[6] = vec2[](
         vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0),
