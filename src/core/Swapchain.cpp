@@ -1,5 +1,6 @@
 #include "Swapchain.hpp"
 #include "core/Device.hpp"
+#include "utils/Log.hpp"
 
 #include <VkBootstrap.h>
 #include <stdexcept>
@@ -23,8 +24,12 @@ void Swapchain::createSwapchain(Device &device, uint32_t width, uint32_t height)
 
 	auto swap_ret = swapchainBuilder
 	                    .set_desired_extent(width, height)
+	                    // Non-sRGB: the SH colours are already in the training
+	                    // image's (sRGB-ish) space. An sRGB target would treat
+	                    // them as linear, re-encode on write, and blend in linear
+	                    // space - unlike the 3DGS reference. Pass values through.
 	                    .set_desired_format(VkSurfaceFormatKHR{
-	                        .format = VK_FORMAT_B8G8R8A8_SRGB,
+	                        .format = VK_FORMAT_B8G8R8A8_UNORM,
 	                        .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR })
 	                    .set_image_usage_flags(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
 	                    .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
@@ -33,6 +38,11 @@ void Swapchain::createSwapchain(Device &device, uint32_t width, uint32_t height)
 		throw std::runtime_error("Failed to create swapchain");
 
 	m_vkbSwapchain = swap_ret.value();
+
+	utils::logInfo("Swapchain: format {} presentMode {} images {}",
+	               static_cast<int>(m_vkbSwapchain.image_format),
+	               static_cast<int>(m_vkbSwapchain.present_mode),
+	               static_cast<int>(m_vkbSwapchain.image_count));
 
 	auto images_ret = m_vkbSwapchain.get_images();
 	if (!images_ret)

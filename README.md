@@ -56,6 +56,10 @@ Implemented:
 - **Estimated GPU memory** readout in the GUI (total + scene/sort/frame/swapchain
   breakdown) and logged on scene load; per-scene estimates shown in the picker.
   Computed from requested buffer sizes (no driver queries).
+- **Colour-space correct output:** a non-sRGB (`B8G8R8A8_UNORM`) swapchain so the
+  SH colours pass through and blend in the training image's space, matching the
+  3DGS reference (an sRGB target double-encodes and blends in linear space,
+  washing colours out).
 
 Deferred: offscreen linear-space compositing + tonemap (would change the colour
 space relative to the 3DGS reference; revisit alongside HDR/exposure), plus
