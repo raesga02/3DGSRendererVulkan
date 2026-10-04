@@ -59,9 +59,10 @@ bool loadFirstCamera(const std::string &path, CameraPose &outPose) {
 		return false;
 
 	outPose.position = glm::vec3(position[0], position[1], position[2]);
-	// Columns of the (row-major) camera-to-world rotation matrix.
+	// 3DGS stores the camera rotation (camera-to-world, columns = camera axes)
+	// with COLMAP's y-down convention, so the world "up" is -column(1).
 	outPose.forward = glm::normalize(glm::vec3(rotation[2], rotation[5], rotation[8]));
-	outPose.up = glm::normalize(glm::vec3(rotation[1], rotation[4], rotation[7]));
+	outPose.up = -glm::normalize(glm::vec3(rotation[1], rotation[4], rotation[7]));
 	return true;
 }
 
