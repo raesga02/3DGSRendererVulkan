@@ -113,12 +113,13 @@ void GUIPass::newFrame(const RenderStats &stats) {
 	ImGui::Separator();
 	ImGui::Text("GPU timings (ms)");
 	if (stats.gpuTimingsValid) {
+		const bool tiled = m_sceneState->renderMode == RenderMode::Tiled;
 		ImGui::Text("Total   %.2f", stats.gpuTotalMs);
-		ImGui::Text("Back    %.2f", stats.gpuBackgroundMs);
-		ImGui::Text("Keygen  %.2f", stats.gpuKeygenMs);
-		ImGui::Text("Radix   %.2f", stats.gpuRadixMs);
-		ImGui::Text("Raster  %.2f", stats.gpuRasterMs);
-		ImGui::Text("GUI     %.2f", stats.gpuGuiMs);
+		ImGui::Text("%-7s %.2f", tiled ? "Project" : "Back", stats.gpuBackgroundMs);
+		ImGui::Text("%-7s %.2f", tiled ? "Bin" : "Keygen", stats.gpuKeygenMs);
+		ImGui::Text("%-7s %.2f", tiled ? "Sort" : "Radix", stats.gpuRadixMs);
+		ImGui::Text("%-7s %.2f", tiled ? "Tiles" : "Raster", stats.gpuRasterMs);
+		ImGui::Text("%-7s %.2f", tiled ? "Comp" : "GUI", stats.gpuGuiMs);
 	} else {
 		ImGui::TextDisabled("unavailable");
 	}
@@ -153,6 +154,9 @@ void GUIPass::newFrame(const RenderStats &stats) {
 	ImGui::Spacing();
 	ImGui::Separator();
 	ImGui::Text("Rendering");
+	int renderMode = static_cast<int>(m_sceneState->renderMode);
+	if (ImGui::Combo("Rasterizer", &renderMode, "Instanced\0Tiled\0"))
+		m_sceneState->renderMode = static_cast<RenderMode>(renderMode);
 	ImGui::SliderFloat("Splat scale", &m_sceneState->splatScale, 0.1f, 3.0f, "%.2f");
 	if (m_sceneState->maxShDegree > 0) {
 		ImGui::SliderInt("SH degree", &m_sceneState->shDegree, 0, m_sceneState->maxShDegree);

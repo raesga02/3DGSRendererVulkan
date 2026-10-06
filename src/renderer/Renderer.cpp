@@ -43,6 +43,7 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 	m_backgroundPass.init(m_renderContext);
 	m_rasterizePass.init(m_renderContext);
 	m_sortPass.init(m_renderContext);
+	m_tileRasterizer.init(device, allocator, m_renderContext, presentation.extent().width, presentation.extent().height);
 	m_guiPass.init(m_renderContext);
 
 	core::SwapchainInfo swapchainInfo{
@@ -87,6 +88,7 @@ void Renderer::shutdown() {
 		m_scene.shutdown(*m_allocator);
 
 	m_sortPass.shutdown(m_renderContext);
+	m_tileRasterizer.shutdown();
 	m_guiPass.shutdown(m_renderContext);
 	m_rasterizePass.shutdown(m_renderContext);
 	m_backgroundPass.shutdown(m_renderContext);
@@ -175,6 +177,7 @@ void Renderer::loadScene(const std::string &plyPath) {
 
 	// The sort pass produces the per-frame index buffers the rasterizer reads.
 	m_sortPass.bind(m_scene.getGaussianBuffer(), cameraHandles, count);
+	m_tileRasterizer.bind(m_scene.getGaussianBuffer(), cameraHandles, count);
 
 	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> indexHandles;
 	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> indirectHandles;
@@ -335,20 +338,28 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 		m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::FrameStart);
 	}
 
-	m_backgroundPass.record(m_renderContext, passCtx);
-	if (m_profiler.valid())
-		m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Background);
+	const bool tiled = m_scene.isLoaded() && m_sceneState.renderMode == RenderMode::Tiled;
 
-	if (m_scene.isLoaded()) {
-		m_sortPass.record(m_renderContext, passCtx);
-		m_rasterizePass.record(m_renderContext, passCtx);
+	if (tiled) {
+		// The tile rasterizer writes the background and composites to the target,
+		// and emits its own per-stage timestamps.
+		m_tileRasterizer.record(m_renderContext, passCtx);
+	} else {
+		m_backgroundPass.record(m_renderContext, passCtx);
+		if (m_profiler.valid())
+			m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Background);
+
+		if (m_scene.isLoaded()) {
+			m_sortPass.record(m_renderContext, passCtx);
+			m_rasterizePass.record(m_renderContext, passCtx);
+		}
+		if (m_profiler.valid())
+			m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Raster);
 	}
-	if (m_profiler.valid())
-		m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Raster);
 
 	if (m_sceneState.showGUI)
 		m_guiPass.record(m_renderContext, passCtx);
-	if (m_profiler.valid())
+	if (m_profiler.valid() && !tiled)
 		m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Gui);
 
 	// Hand the image to the presentation engine, optionally reading it back first.

@@ -8,10 +8,18 @@
 
 namespace renderer {
 
+enum class RenderMode : int {
+	Instanced = 0,
+	Tiled = 1,
+};
+
 // UI-adjustable renderer state. Grows every phase (SH degree, sort toggle,
 // debug views, ...).
 struct SceneState {
 	bool showGUI = true;
+
+	// Rasterization path.
+	RenderMode renderMode = RenderMode::Instanced;
 
 	// Background gradient (linear RGB).
 	glm::vec3 backgroundColorTop{ 0.05f, 0.06f, 0.09f };

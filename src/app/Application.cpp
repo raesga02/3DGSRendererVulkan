@@ -23,11 +23,15 @@ void Application::run(int argc, char **argv) {
 			m_screenshotMode = true;
 		} else if (arg == "--profile") {
 			m_profileMode = true;
+		} else if (arg == "--tiled") {
+			m_tiledMode = true;
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
 	}
 	init(initialScene);
+	if (m_tiledMode)
+		m_renderer.getSceneState().renderMode = renderer::RenderMode::Tiled;
 	mainLoop();
 	shutdown();
 }

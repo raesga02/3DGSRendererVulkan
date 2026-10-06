@@ -14,15 +14,16 @@ layout(set = 0, binding = 1, std430) buffer GlobalExBuffer {
     uint globalEx[];
 };
 
-layout(push_constant) uniform Push {
-    uint groupCount;
-} pc;
+layout(set = 0, binding = 2, std430) readonly buffer Args {
+    uvec4 args;
+};
 
 void main() {
     uint b = gl_GlobalInvocationID.x;
+    uint groupCount = args.x;
 
     uint running = 0u;
-    for (uint g = 0u; g < pc.groupCount; ++g) {
+    for (uint g = 0u; g < groupCount; ++g) {
         uint idx = g * 256u + b;
         uint val = hist[idx];
         hist[idx] = running;

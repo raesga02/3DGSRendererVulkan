@@ -61,6 +61,7 @@ class SortPass : public Pass {
 	gpu::Allocator *m_allocator = nullptr;
 
 	RadixSorter m_radix;
+	gpu::Buffer m_countSource;
 
 	VkDescriptorSetLayout m_keygenSetLayout = VK_NULL_HANDLE;
 	VkDescriptorSetLayout m_indirectSetLayout = VK_NULL_HANDLE;

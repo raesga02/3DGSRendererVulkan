@@ -1,0 +1,180 @@
+#version 450
+
+// Projects, culls and shades Gaussians once, and appends them to a compacted
+// list with their screen-space conic, colour, depth key and tile bounds.
+
+layout(local_size_x = 256) in;
+
+struct Gaussian {
+    float position[3];
+    float cov3D[6];
+    float opacity;
+    float sh[48];
+};
+
+struct Projected {
+    vec2 screen;
+    vec3 conic;
+    vec3 color;
+    float opacity;
+    uint depthKey;
+    ivec2 tileMin;
+    ivec2 tileMax;
+};
+
+layout(set = 0, binding = 0) uniform CameraUbo {
+    mat4 view;
+    mat4 proj;
+    vec4 viewport;
+    vec4 cameraPos;
+} camera;
+
+layout(set = 0, binding = 1, std430) readonly buffer Gaussians {
+    Gaussian g[];
+};
+
+layout(set = 0, binding = 2, std430) buffer ProjectedBuffer {
+    Projected p[];
+};
+
+layout(set = 0, binding = 3, std430) buffer CountBuffer {
+    uint projectedCount;
+};
+
+layout(push_constant) uniform Push {
+    uint count;
+    uint tilesX;
+    uint tilesY;
+    uint depthBits;
+    float splatScale;
+    float maxRadiusFraction;
+    int shDegree;
+} pc;
+
+const float SH_C0 = 0.28209479177387814;
+const float SH_C1 = 0.4886025119029199;
+const float SH_C2_0 = 1.0925484305920792;
+const float SH_C2_1 = -1.0925484305920792;
+const float SH_C2_2 = 0.31539156525252005;
+const float SH_C2_3 = -1.0925484305920792;
+const float SH_C2_4 = 0.5462742152960396;
+const float SH_C3_0 = -0.5900435899266435;
+const float SH_C3_1 = 2.890611442640554;
+const float SH_C3_2 = -0.4570457994644658;
+const float SH_C3_3 = 0.3731763325901154;
+const float SH_C3_4 = -0.4570457994644658;
+const float SH_C3_5 = 1.445305721320277;
+const float SH_C3_6 = -0.5900435899266435;
+
+vec3 evalColor(Gaussian g, vec3 dir) {
+    vec3 result = SH_C0 * vec3(g.sh[0], g.sh[1], g.sh[2]);
+    if (pc.shDegree > 0) {
+        float x = dir.x, y = dir.y, z = dir.z;
+        result += -SH_C1 * y * vec3(g.sh[3], g.sh[4], g.sh[5])
+                + SH_C1 * z * vec3(g.sh[6], g.sh[7], g.sh[8])
+                - SH_C1 * x * vec3(g.sh[9], g.sh[10], g.sh[11]);
+        if (pc.shDegree > 1) {
+            float xx = x * x, yy = y * y, zz = z * z;
+            float xy = x * y, yz = y * z, xz = x * z;
+            result += SH_C2_0 * xy * vec3(g.sh[12], g.sh[13], g.sh[14])
+                    + SH_C2_1 * yz * vec3(g.sh[15], g.sh[16], g.sh[17])
+                    + SH_C2_2 * (2.0 * zz - xx - yy) * vec3(g.sh[18], g.sh[19], g.sh[20])
+                    + SH_C2_3 * xz * vec3(g.sh[21], g.sh[22], g.sh[23])
+                    + SH_C2_4 * (xx - yy) * vec3(g.sh[24], g.sh[25], g.sh[26]);
+            if (pc.shDegree > 2) {
+                result += SH_C3_0 * y * (3.0 * xx - yy) * vec3(g.sh[27], g.sh[28], g.sh[29])
+                        + SH_C3_1 * xy * z * vec3(g.sh[30], g.sh[31], g.sh[32])
+                        + SH_C3_2 * y * (4.0 * zz - xx - yy) * vec3(g.sh[33], g.sh[34], g.sh[35])
+                        + SH_C3_3 * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * vec3(g.sh[36], g.sh[37], g.sh[38])
+                        + SH_C3_4 * x * (4.0 * zz - xx - yy) * vec3(g.sh[39], g.sh[40], g.sh[41])
+                        + SH_C3_5 * z * (xx - yy) * vec3(g.sh[42], g.sh[43], g.sh[44])
+                        + SH_C3_6 * x * (xx - 3.0 * yy) * vec3(g.sh[45], g.sh[46], g.sh[47]);
+            }
+        }
+    }
+    return max(result + 0.5, vec3(0.0));
+}
+
+uint floatToSortable(float f) {
+    uint u = floatBitsToUint(f);
+    return (u & 0x80000000u) != 0u ? ~u : (u | 0x80000000u);
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.count)
+        return;
+
+    Gaussian g = g[i];
+    vec3 pos = vec3(g.position[0], g.position[1], g.position[2]);
+    vec4 viewPos4 = camera.view * vec4(pos, 1.0);
+    if (viewPos4.z > -0.05)
+        return;
+
+    vec4 clip = camera.proj * viewPos4;
+    if (abs(clip.x) > 1.5 * clip.w || abs(clip.y) > 1.5 * clip.w)
+        return;
+
+    mat3 Vrk = mat3(
+        g.cov3D[0], g.cov3D[1], g.cov3D[2],
+        g.cov3D[1], g.cov3D[3], g.cov3D[4],
+        g.cov3D[2], g.cov3D[4], g.cov3D[5]);
+
+    float focalX = 0.5 * camera.viewport.x * camera.proj[0][0];
+    float focalY = 0.5 * camera.viewport.y * camera.proj[1][1];
+    float invZ = 1.0 / viewPos4.z;
+    mat3 J = mat3(
+        focalX * invZ, 0.0, 0.0,
+        0.0, focalY * invZ, 0.0,
+        -focalX * viewPos4.x * invZ * invZ, -focalY * viewPos4.y * invZ * invZ, 0.0);
+    mat3 W = mat3(camera.view);
+    mat3 T = J * W;
+    mat3 cov2D = T * Vrk * transpose(T);
+
+    float scale2 = pc.splatScale * pc.splatScale;
+    float a = cov2D[0][0] * scale2 + 0.3;
+    float b = cov2D[0][1] * scale2;
+    float c = cov2D[1][1] * scale2 + 0.3;
+
+    float det = max(a * c - b * b, 1e-6);
+    float invDet = 1.0 / det;
+    vec3 conic = vec3(c * invDet, -b * invDet, a * invDet);
+
+    vec3 ndc = clip.xyz / clip.w;
+    vec2 screen = vec2((ndc.x * 0.5 + 0.5) * camera.viewport.x,
+                       (ndc.y * 0.5 + 0.5) * camera.viewport.y);
+
+    float mid = 0.5 * (a + c);
+    float term = sqrt(max(0.1, mid * mid - (a * c - b * b)));
+    float radiusPx = 4.0 * sqrt(max(mid + term, 1e-4));
+    if (pc.maxRadiusFraction > 0.0) {
+        float maxR = pc.maxRadiusFraction * min(camera.viewport.x, camera.viewport.y);
+        if (radiusPx > maxR)
+            return;
+    }
+
+    float extX = 4.0 * sqrt(max(a, 1e-6));
+    float extY = 4.0 * sqrt(max(c, 1e-6));
+    const float TILE = 16.0;
+    int tminX = clamp(int(floor((screen.x - extX) / TILE)), 0, int(pc.tilesX));
+    int tmaxX = clamp(int(ceil((screen.x + extX) / TILE)), 0, int(pc.tilesX));
+    int tminY = clamp(int(floor((screen.y - extY) / TILE)), 0, int(pc.tilesY));
+    int tmaxY = clamp(int(ceil((screen.y + extY) / TILE)), 0, int(pc.tilesY));
+    if (tmaxX <= tminX || tmaxY <= tminY)
+        return;
+
+    uint depthKey = floatToSortable(-viewPos4.z) >> (32u - pc.depthBits);
+
+    vec3 dir = normalize(pos - camera.cameraPos.xyz);
+
+    uint idx = atomicAdd(projectedCount, 1u);
+    Projected pr;
+    pr.screen = screen;
+    pr.conic = conic;
+    pr.color = evalColor(g, dir);
+    pr.opacity = g.opacity;
+    pr.depthKey = depthKey;
+    pr.tileMin = ivec2(tminX, tminY);
+    pr.tileMax = ivec2(tmaxX, tmaxY);
+    p[idx] = pr;
+}

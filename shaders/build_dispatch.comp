@@ -1,0 +1,22 @@
+#version 450
+
+// Turns an element count into a dispatch command for the radix passes:
+// args = { ceil(count / blockSize), 1, 1, 0 }.
+
+layout(local_size_x = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer Count {
+    uint count;
+};
+layout(set = 0, binding = 1, std430) writeonly buffer Args {
+    uvec4 args;
+};
+
+layout(push_constant) uniform Push {
+    uint blockSize;
+} pc;
+
+void main() {
+    uint groups = (count + pc.blockSize - 1u) / pc.blockSize;
+    args = uvec4(max(groups, 1u), 1u, 1u, 0u);
+}

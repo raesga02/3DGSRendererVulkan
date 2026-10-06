@@ -125,6 +125,7 @@ void SortPass::releaseFrameBuffers() {
 		frame.visibleCount.shutdown(m_allocator->get());
 		frame.indirect.shutdown(m_allocator->get());
 	}
+	m_countSource.shutdown(m_allocator->get());
 	m_allocated = false;
 }
 
@@ -140,6 +141,12 @@ void SortPass::bind(VkBuffer gaussianBuffer, const std::array<VkBuffer, 2> &came
 	m_keygenGroups = m_paddedCount / 256;
 
 	m_radix.resize(m_paddedCount);
+
+	// The radix sort reads its element count from this buffer.
+	m_countSource.init(*m_device, m_allocator->get(), sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_HOST, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+	*static_cast<uint32_t *>(m_countSource.getMappedData()) = m_paddedCount;
+	for (uint32_t f = 0; f < MAX_FRAMES_IN_FLIGHT; ++f)
+		m_radix.setCountSource(f, m_countSource.get());
 
 	vkResetDescriptorPool(m_vkDevice, m_pool, 0);
 
@@ -232,7 +239,7 @@ void SortPass::record(RenderContext &renderCtx, const PassContext &passCtx) {
 		renderCtx.profiler->write(cmd, passCtx.frameIndex, GpuSlot::Keygen);
 
 	if (renderCtx.sceneState->sortEnabled)
-		m_radix.record(cmd, passCtx.frameIndex, m_paddedCount, false);
+		m_radix.record(cmd, passCtx.frameIndex, false);
 
 	if (renderCtx.profiler)
 		renderCtx.profiler->write(cmd, passCtx.frameIndex, GpuSlot::Radix);

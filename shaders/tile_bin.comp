@@ -1,0 +1,58 @@
+#version 450
+
+// Emits one (tileKey, projectedIndex) entry per tile a projected Gaussian
+// overlaps. tileKey = tileID << depthBits | depthKey (near = small).
+
+layout(local_size_x = 256) in;
+
+struct Projected {
+    vec2 screen;
+    vec3 conic;
+    vec3 color;
+    float opacity;
+    uint depthKey;
+    ivec2 tileMin;
+    ivec2 tileMax;
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer ProjectedBuffer {
+    Projected p[];
+};
+layout(set = 0, binding = 1, std430) readonly buffer CountBuffer {
+    uint projectedCount;
+};
+layout(set = 0, binding = 2, std430) buffer Keys {
+    uint keys[];
+};
+layout(set = 0, binding = 3, std430) buffer Values {
+    uint values[];
+};
+layout(set = 0, binding = 4, std430) buffer EntryCount {
+    uint entryCount;
+};
+
+layout(push_constant) uniform Push {
+    uint maxProjected;
+    uint maxEntries;
+    uint tilesX;
+    uint depthBits;
+} pc;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.maxProjected || i >= projectedCount)
+        return;
+
+    Projected pr = p[i];
+    for (int ty = pr.tileMin.y; ty < pr.tileMax.y; ++ty) {
+        for (int tx = pr.tileMin.x; tx < pr.tileMax.x; ++tx) {
+            uint tileID = uint(ty) * pc.tilesX + uint(tx);
+            uint key = (tileID << pc.depthBits) | pr.depthKey;
+            uint slot = atomicAdd(entryCount, 1u);
+            if (slot >= pc.maxEntries)
+                return;
+            keys[slot] = key;
+            values[slot] = i;
+        }
+    }
+}

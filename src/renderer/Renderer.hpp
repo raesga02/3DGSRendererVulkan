@@ -3,6 +3,7 @@
 #include "RenderContext.hpp"
 #include "RenderStats.hpp"
 #include "SceneState.hpp"
+#include "TileRasterizer.hpp"
 #include "app/CameraController.hpp"
 #include "gpu/Buffer.hpp"
 #include "renderer/GpuProfiler.hpp"
@@ -95,6 +96,7 @@ class Renderer {
 	BackgroundPass m_backgroundPass;
 	RasterizePass m_rasterizePass;
 	SortPass m_sortPass;
+	TileRasterizer m_tileRasterizer;
 	GUIPass m_guiPass;
 
 	GpuProfiler m_profiler;

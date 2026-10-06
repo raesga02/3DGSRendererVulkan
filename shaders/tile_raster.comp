@@ -1,0 +1,86 @@
+#version 450
+
+// Tile rasterizer: one 16x16 workgroup per tile, one thread per pixel.
+// Composites front-to-back with per-pixel transmittance early-out. The tile's
+// projected Gaussians are staged into shared memory in chunks so each struct
+// is read from global memory once per tile instead of once per pixel.
+
+layout(local_size_x = 256) in;
+#define TILE 16
+#define SMEM 256
+
+struct Projected {
+    vec2 screen;
+    vec3 conic;
+    vec3 color;
+    float opacity;
+    uint depthKey;
+    ivec2 tileMin;
+    ivec2 tileMax;
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer ProjectedBuffer {
+    Projected p[];
+};
+layout(set = 0, binding = 1, std430) readonly buffer Values {
+    uint values[];
+};
+layout(set = 0, binding = 2, std430) readonly buffer TileStart {
+    uint starts[];
+};
+layout(set = 0, binding = 3, rgba8) uniform writeonly image2D outImage;
+
+layout(push_constant) uniform Push {
+    uint tilesX;
+    uint tilesY;
+    vec2 viewport;
+    vec4 bgTop;
+    vec4 bgBottom;
+} pc;
+
+shared Projected smem[SMEM];
+
+void main() {
+    uint tileID = gl_WorkGroupID.x;
+    uint tid = gl_LocalInvocationID.x;
+
+    int px = int((tileID % pc.tilesX) * uint(TILE) + tid % uint(TILE));
+    int py = int((tileID / pc.tilesX) * uint(TILE) + tid / uint(TILE));
+    bool inside = px < int(pc.viewport.x) && py < int(pc.viewport.y);
+
+    uint start = starts[tileID];
+    uint end = starts[tileID + 1];
+
+    vec2 pix = vec2(px, py) + 0.5;
+    float uvy = (float(py) + 0.5) / pc.viewport.y;
+    vec3 color = mix(pc.bgBottom.rgb, pc.bgTop.rgb, uvy);
+    float T = 1.0;
+
+    for (uint base = start; base < end; base += uint(SMEM)) {
+        uint chunk = min(uint(SMEM), end - base);
+        for (uint j = tid; j < chunk; j += 256u)
+            smem[j] = p[values[base + j]];
+        barrier();
+
+        if (inside && T >= 1e-4) {
+            for (uint j = 0u; j < chunk; ++j) {
+                Projected pr = smem[j];
+                vec2 d = pix - pr.screen;
+                float power = -0.5 * (pr.conic.x * d.x * d.x + 2.0 * pr.conic.y * d.x * d.y + pr.conic.z * d.y * d.y);
+                if (power > 0.0)
+                    continue;
+                float alpha = min(0.99, pr.opacity * exp(power));
+                if (alpha < 1.0 / 255.0)
+                    continue;
+                color += T * alpha * pr.color;
+                T *= (1.0 - alpha);
+                if (T < 1e-4)
+                    break;
+            }
+        }
+        barrier();
+    }
+
+    if (inside)
+        imageStore(outImage, ivec2(px, py), vec4(color, 1.0));
+}
