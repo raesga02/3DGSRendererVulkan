@@ -71,6 +71,7 @@ class Renderer {
 
 	void scanScenes();
 	void createFrameBuffers();
+	void updateSortDirty();
 	void updateCameraBuffer(uint32_t frameIndex);
 	void recordFrame(const app::PresentFrame &frame);
 	void captureScreenshot();
@@ -112,6 +113,17 @@ class Renderer {
 	uint32_t m_readbackHeight = 0;
 
 	std::chrono::steady_clock::time_point m_lastFrameTime{};
+
+	// Idle-skip: reuse the previous sort when the view/scene/settings are unchanged.
+	glm::mat4 m_lastSortView{ 1.0f };
+	bool m_hasSortView = false;
+	uint32_t m_sortCooldown = 0;
+	int m_prevRenderMode = -1;
+	int m_prevShDegree = -1;
+	float m_prevSplatScale = -1.0f;
+	bool m_prevCull = false;
+	float m_prevMaxSplat = -1.0f;
+	bool m_prevSortEnabled = true;
 };
 
 }        // namespace renderer

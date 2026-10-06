@@ -394,6 +394,9 @@ void TileRasterizer::record(RenderContext &renderCtx, const PassContext &passCtx
 	FrameResources &frame = m_frames[f];
 	VkCommandBuffer cmd = passCtx.cmd;
 
+	// Idle-skip: only rebuild the projected/bin/sorted data when needed.
+	const bool rebuild = renderCtx.sceneState->sortDirty;
+	if (rebuild) {
 	// Reset per-frame counters and the key buffer (padding = 0xFFFFFFFF).
 	vkCmdFillBuffer(cmd, frame.projectedCount.get(), 0, sizeof(uint32_t), 0);
 	vkCmdFillBuffer(cmd, frame.entryCount.get(), 0, sizeof(uint32_t), 0);
@@ -450,6 +453,11 @@ void TileRasterizer::record(RenderContext &renderCtx, const PassContext &passCtx
 	vkCmdPushConstants(cmd, m_scanLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(sp), &sp);
 	vkCmdDispatch(cmd, 1, 1, 1);
 	computeBarrier(cmd);
+	} else if (renderCtx.profiler) {
+		renderCtx.profiler->write(cmd, f, GpuSlot::Background);
+		renderCtx.profiler->write(cmd, f, GpuSlot::Keygen);
+		renderCtx.profiler->write(cmd, f, GpuSlot::Radix);
+	}
 
 	// 5) Tile raster
 	frame.output.transition(cmd, VK_IMAGE_LAYOUT_GENERAL);

@@ -51,6 +51,11 @@ struct SceneState {
 	// Set when the renderer has loaded a scene and derived new derived state.
 	bool sceneDirty = false;
 
+	// Set by the renderer each frame: true when the view/scene/settings changed
+	// and the depth/tile sort must be rebuilt. When false, the previous sort is
+	// reused (idle-skip).
+	bool sortDirty = true;
+
 	// Screenshot request (F12).
 	bool screenshotRequested = false;
 	int screenshotCounter = 0;

@@ -210,6 +210,15 @@ void SortPass::record(RenderContext &renderCtx, const PassContext &passCtx) {
 	if (!m_allocated || m_count == 0)
 		return;
 
+	// Idle-skip: reuse the previous frame's sorted indices and indirect command.
+	if (!renderCtx.sceneState->sortDirty) {
+		if (renderCtx.profiler) {
+			renderCtx.profiler->write(passCtx.cmd, passCtx.frameIndex, GpuSlot::Keygen);
+			renderCtx.profiler->write(passCtx.cmd, passCtx.frameIndex, GpuSlot::Radix);
+		}
+		return;
+	}
+
 	FrameResources &frame = m_frames[passCtx.frameIndex];
 	VkCommandBuffer cmd = passCtx.cmd;
 

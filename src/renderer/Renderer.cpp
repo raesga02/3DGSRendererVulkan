@@ -195,6 +195,7 @@ void Renderer::loadScene(const std::string &plyPath) {
 	m_sceneState.shDegree = meta.shDegree;
 	m_sceneState.maxShDegree = meta.shDegree;
 	m_sceneState.sceneDirty = true;
+	m_hasSortView = false;        // force a sort rebuild for the new scene
 
 	utils::logInfo("Loaded scene '{}': {} Gaussians, SH degree {}, radius {:.2f}",
 	               m_sceneState.currentSceneName, count, meta.shDegree, meta.radius);
@@ -227,6 +228,39 @@ void Renderer::update(const app::InputState &input, float dt) {
 	m_cameraController.apply(m_camera, aspect);
 }
 
+void Renderer::updateSortDirty() {
+	if (!m_scene.isLoaded()) {
+		m_sceneState.sortDirty = false;
+		return;
+	}
+
+	glm::mat4 view = m_camera.getView();
+	bool changed = !m_hasSortView || view != m_lastSortView ||
+	               static_cast<int>(m_sceneState.renderMode) != m_prevRenderMode ||
+	               m_sceneState.shDegree != m_prevShDegree ||
+	               m_sceneState.splatScale != m_prevSplatScale ||
+	               m_sceneState.cullLargeSplats != m_prevCull ||
+	               m_sceneState.maxSplatFraction != m_prevMaxSplat ||
+	               m_sceneState.sortEnabled != m_prevSortEnabled;
+
+	if (changed) {
+		m_lastSortView = view;
+		m_hasSortView = true;
+		m_sortCooldown = MAX_FRAMES_IN_FLIGHT;        // rebuild every frame slot
+	}
+
+	m_sceneState.sortDirty = changed || m_sortCooldown > 0;
+	if (m_sortCooldown > 0)
+		--m_sortCooldown;
+
+	m_prevRenderMode = static_cast<int>(m_sceneState.renderMode);
+	m_prevShDegree = m_sceneState.shDegree;
+	m_prevSplatScale = m_sceneState.splatScale;
+	m_prevCull = m_sceneState.cullLargeSplats;
+	m_prevMaxSplat = m_sceneState.maxSplatFraction;
+	m_prevSortEnabled = m_sceneState.sortEnabled;
+}
+
 void Renderer::updateCameraBuffer(uint32_t frameIndex) {
 	VkExtent2D extent = m_presentation->extent();
 
@@ -245,6 +279,8 @@ void Renderer::updateCameraBuffer(uint32_t frameIndex) {
 }
 
 void Renderer::drawFrame() {
+	updateSortDirty();
+
 	if (m_sceneState.showGUI)
 		m_guiPass.newFrame(m_stats);
 

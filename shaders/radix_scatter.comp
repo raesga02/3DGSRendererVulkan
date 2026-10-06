@@ -1,17 +1,20 @@
 #version 450
 
-// Deterministic, stable scatter for one 4-bit radix digit.
+// Deterministic, stable scatter for one 8-bit radix digit using warp-level
+// match ranking (CUB-style). Warp-major layout: thread `tid`'s item `it` is at
+// base + warp*256 + it*32 + lane, so buffer order is (warp, item, lane).
 //
-// Contiguous per-thread ownership: thread `tid` owns items
-// [base + tid*8, base + tid*8 + 8). A per-thread histogram is block-scanned so
-// each item's destination follows buffer order, making the sort stable (and so
-// frame-to-frame deterministic).
+// rank = globalEx[d] + blockEx[d]                 (block base)
+//      + warpExclusive[warp][d]                    (warps before, all items)
+//      + running[warp][d]                          (this warp's earlier items)
+//      + peerPrefix                                (earlier lanes, this item)
 
 layout(local_size_x = 256) in;
 
 #define BLOCK_SIZE 2048
+#define WARPS 8
 #define ITEMS 8
-#define BINS 16
+#define BINS 256
 
 layout(set = 0, binding = 0, std430) readonly buffer InKeyBuffer {
     uint inKeys[];
@@ -36,51 +39,73 @@ layout(push_constant) uniform Push {
     uint shift;
 } pc;
 
-// sThread[bin * 256 + thread]
-shared uint sThread[BINS * 256];
+shared uint sMatch[WARPS * BINS];        // per-warp match mask, reused per item
+shared uint sWarp[BINS * WARPS];         // per (digit, warp) counts -> exclusive offsets
+shared uint sRun[WARPS * BINS];          // per-warp running digit counts
 
 void main() {
     uint tid = gl_LocalInvocationID.x;
+    uint warp = tid >> 5u;
+    uint lane = tid & 31u;
     uint group = gl_WorkGroupID.x;
     uint base = group * BLOCK_SIZE;
+    uint laneMaskLt = (1u << lane) - 1u;
 
-    for (uint i = tid; i < BINS * 256u; i += 256u)
-        sThread[i] = 0u;
+    for (uint i = tid; i < WARPS * BINS; i += 256u) {
+        sMatch[i] = 0u;
+        sRun[i] = 0u;
+    }
+    for (uint i = tid; i < BINS * WARPS; i += 256u)
+        sWarp[i] = 0u;
     barrier();
 
-    // Per-thread histogram of its ITEMS (contiguous ownership).
-    for (uint t = 0u; t < ITEMS; ++t) {
-        uint digit = (inKeys[base + tid * ITEMS + t] >> pc.shift) & 0xFu;
-        atomicAdd(sThread[digit * 256u + tid], 1u);
+    // Phase A: per-warp digit counts (over all items).
+    for (uint it = 0u; it < ITEMS; ++it) {
+        uint idx = base + warp * 256u + it * 32u + lane;
+        uint digit = (inKeys[idx] >> pc.shift) & 0xFFu;
+        atomicOr(sMatch[warp * BINS + digit], 1u << lane);
+        barrier();
+        uint mask = sMatch[warp * BINS + digit];
+        uint leader = uint(findMSB(mask));
+        if (lane == leader)
+            atomicAdd(sWarp[digit * WARPS + warp], uint(bitCount(mask)));
+        barrier();
+        sMatch[warp * BINS + digit] = 0u;
+        barrier();
     }
     barrier();
 
-    // Exclusive scan over threads for each bin (thread b owns column b).
+    // Exclusive scan across warps for each digit (thread d owns digit d).
     if (tid < BINS) {
         uint run = 0u;
-        for (uint i = 0u; i < 256u; ++i) {
-            uint v = sThread[tid * 256u + i];
-            sThread[tid * 256u + i] = run;
+        for (uint w = 0u; w < WARPS; ++w) {
+            uint v = sWarp[tid * WARPS + w];
+            sWarp[tid * WARPS + w] = run;
             run += v;
         }
     }
     barrier();
 
-    // Emit items in order (stable within the thread and across threads).
-    for (uint t = 0u; t < ITEMS; ++t) {
-        uint idx = base + tid * ITEMS + t;
+    // Phase C: rank and emit.
+    for (uint it = 0u; it < ITEMS; ++it) {
+        uint idx = base + warp * 256u + it * 32u + lane;
         uint key = inKeys[idx];
-        uint digit = (key >> pc.shift) & 0xFu;
+        uint digit = (key >> pc.shift) & 0xFFu;
+        atomicOr(sMatch[warp * BINS + digit], 1u << lane);
+        barrier();
+        uint mask = sMatch[warp * BINS + digit];
+        uint peer = uint(bitCount(mask & laneMaskLt));
 
-        uint rank = 0u;
-        for (uint t2 = 0u; t2 < t; ++t2) {
-            uint d2 = (inKeys[base + tid * ITEMS + t2] >> pc.shift) & 0xFu;
-            if (d2 == digit)
-                ++rank;
-        }
-
-        uint pos = globalEx[digit] + hist[group * BINS + digit] + sThread[digit * 256u + tid] + rank;
+        uint pos = globalEx[digit] + hist[group * BINS + digit] +
+                   sWarp[digit * WARPS + warp] + sRun[warp * BINS + digit] + peer;
         outKeys[pos] = key;
         outValues[pos] = inValues[idx];
+
+        uint leader = uint(findMSB(mask));
+        if (lane == leader)
+            atomicAdd(sRun[warp * BINS + digit], uint(bitCount(mask)));
+        barrier();
+        sMatch[warp * BINS + digit] = 0u;
+        barrier();
     }
 }

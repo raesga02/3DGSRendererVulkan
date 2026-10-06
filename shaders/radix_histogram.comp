@@ -1,11 +1,11 @@
 #version 450
 
-// Per-workgroup histogram of one 4-bit radix digit (16 buckets).
+// Per-workgroup histogram of one 8-bit radix digit (256 buckets).
 
 layout(local_size_x = 256) in;
 
 #define BLOCK_SIZE 2048
-#define BINS 16
+#define BINS 256
 
 layout(set = 0, binding = 0, std430) readonly buffer KeyBuffer {
     uint keys[];
@@ -25,18 +25,18 @@ void main() {
     uint tid = gl_LocalInvocationID.x;
     uint group = gl_WorkGroupID.x;
 
-    if (tid < BINS)
-        sHist[tid] = 0u;
+    for (uint b = tid; b < BINS; b += 256u)
+        sHist[b] = 0u;
     barrier();
 
     uint base = group * BLOCK_SIZE;
     for (uint t = 0u; t < 8u; ++t) {
-        uint idx = base + tid * 8u + t;
-        uint digit = (keys[idx] >> pc.shift) & 0xFu;
+        uint idx = base + t * 256u + tid;
+        uint digit = (keys[idx] >> pc.shift) & 0xFFu;
         atomicAdd(sHist[digit], 1u);
     }
     barrier();
 
-    if (tid < BINS)
-        hist[group * BINS + tid] = sHist[tid];
+    for (uint b = tid; b < BINS; b += 256u)
+        hist[group * BINS + b] = sHist[b];
 }
