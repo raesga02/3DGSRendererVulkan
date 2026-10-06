@@ -25,6 +25,8 @@ void Application::run(int argc, char **argv) {
 			m_profileMode = true;
 		} else if (arg == "--tiled") {
 			m_tiledMode = true;
+		} else if (arg == "--nosort") {
+			m_noSort = true;
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
@@ -32,6 +34,8 @@ void Application::run(int argc, char **argv) {
 	init(initialScene);
 	if (m_tiledMode)
 		m_renderer.getSceneState().renderMode = renderer::RenderMode::Tiled;
+	if (m_noSort)
+		m_renderer.getSceneState().sortEnabled = false;
 	mainLoop();
 	shutdown();
 }

@@ -1,10 +1,12 @@
 #version 450
 
-// Exclusive scan of the per-workgroup histograms:
-//  - hist[group*256+b] becomes the group's exclusive offset within bin b
+// Exclusive scan of the per-workgroup histograms (16 bins):
+//  - hist[group*16+b] becomes the group's exclusive offset within bin b
 //  - globalEx[b] becomes the global exclusive offset for bin b
 
-layout(local_size_x = 256) in;
+layout(local_size_x = 16) in;
+
+#define BINS 16
 
 layout(set = 0, binding = 0, std430) buffer HistBuffer {
     uint hist[];
@@ -24,7 +26,7 @@ void main() {
 
     uint running = 0u;
     for (uint g = 0u; g < groupCount; ++g) {
-        uint idx = g * 256u + b;
+        uint idx = g * BINS + b;
         uint val = hist[idx];
         hist[idx] = running;
         running += val;
@@ -36,7 +38,7 @@ void main() {
 
     if (b == 0u) {
         uint acc = 0u;
-        for (uint i = 0u; i < 256u; ++i) {
+        for (uint i = 0u; i < BINS; ++i) {
             uint t = globalEx[i];
             globalEx[i] = acc;
             acc += t;

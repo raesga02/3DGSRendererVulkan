@@ -31,8 +31,8 @@ class RadixSorter {
 	static constexpr uint32_t kWorkgroupSize = 256;
 	static constexpr uint32_t kItemsPerThread = 8;
 	static constexpr uint32_t kBlockSize = kWorkgroupSize * kItemsPerThread;        // 2048
-	static constexpr uint32_t kPasses = 4;
-	static constexpr uint32_t kBuckets = 256;
+	static constexpr uint32_t kPasses = 8;        // 8 x 4-bit digits
+	static constexpr uint32_t kBuckets = 16;
 
 	void init(core::Device &device, gpu::Allocator &allocator, RenderContext &renderCtx, uint32_t framesInFlight);
 	void shutdown();

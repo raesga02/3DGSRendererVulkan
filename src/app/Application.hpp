@@ -37,6 +37,7 @@ class Application {
 	int m_profileFrame = 0;
 
 	bool m_tiledMode = false;
+	bool m_noSort = false;
 
   private:
 	GLFWwindow *m_window = nullptr;

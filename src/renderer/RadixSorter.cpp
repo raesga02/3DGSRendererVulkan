@@ -290,7 +290,7 @@ void RadixSorter::record(VkCommandBuffer cmd, uint32_t frameIndex, bool clearKey
 	                     0, 1, &argsBarrier, 0, nullptr, 0, nullptr);
 
 	for (uint32_t pass = 0; pass < kPasses; ++pass) {
-		uint32_t shift = pass * 8u;
+		uint32_t shift = pass * 4u;
 		uint32_t src = pass % 2u;
 
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_histPipeline);
