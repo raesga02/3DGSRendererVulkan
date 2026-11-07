@@ -69,6 +69,10 @@ void Application::run(int argc, char **argv) {
 		} else if (arg == "--vr-foveation" && i + 1 < argc) {
 			const int rate = std::atoi(argv[++i]);
 			m_foveationRate = (rate == 2 || rate == 4) ? static_cast<uint32_t>(rate) : 0;
+		} else if (arg == "--vr-foveation-size" && i + 1 < argc) {
+			m_foveationSize = std::strtof(argv[++i], nullptr);
+		} else if (arg == "--vr-foveation-debug") {
+			m_foveationDebug = true;
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
@@ -85,6 +89,8 @@ void Application::run(int argc, char **argv) {
 
 	m_renderer.setShadingRate(m_shadingRate);
 	m_renderer.setFoveation(m_foveationRate);
+	m_renderer.setFoveationSize(m_foveationSize);
+	m_renderer.setFoveationDebug(m_foveationDebug);
 	init(initialScene);
 	m_presentation.setStereoTest(m_stereoTest);
 	applyRendererOverrides();
@@ -244,6 +250,8 @@ void Application::runVr(const std::string &initialScene) {
 	// single-view for now).
 	m_renderer.setShadingRate(m_shadingRate);
 	m_renderer.setFoveation(m_foveationRate);
+	m_renderer.setFoveationSize(m_foveationSize);
+	m_renderer.setFoveationDebug(m_foveationDebug);
 	m_renderer.init(m_device, m_allocator, nullptr, *m_xrPresentation, nullptr, initialScene);
 	m_renderer.getSceneState().showGUI = false;
 	m_renderer.getSceneState().renderMode = renderer::RenderMode::Instanced;

@@ -263,10 +263,15 @@ flatpak run --user --command=wivrn-server io.github.wivrn.wivrn   # if needed
 - **Fixed foveation:** `--vr-foveation 2|4` builds a per-eye rate map with a
   sharp 1x1 centre and 2x2/4x4 periphery, centred on each eye's optical axis.
   The sharp region is fixed to the forward direction (not eye-tracked).
-  Measured on `room` at the same resolution: ~14.2 ms total for `2` and
-  ~14.0 ms for `4`, versus 12.2 ms uniform 2x2. `--vr-foveation 2` is the best
-  quality/cost balance; the image centre stays sharp while the periphery is
-  softer.
+  `--vr-foveation-size <fraction>` controls the 1x1 radius (default 0.40;
+  the mid ring starts at `max(0.85, radius + 0.20)`). Measured on `room` at
+  1238x1296/eye with the default size: ~13.4 ms total for `2` and ~13.2 ms for
+  `4`, versus 12.2 ms uniform 2x2 and 21.1 ms baseline. `--vr-foveation 2` is
+  the best quality/cost balance.
+- **Foveation debug view:** `--vr-foveation-debug` tints the splat image by
+  rate-map class — green = 1x1, yellow = 2x2, red = 4x4 — quantized to the
+  16x16 rate texels and centred on each eye's optical axis. It is translucent
+  and only active when foveation is enabled.
 - The runtime manifest is taken from the WiVRn Flatpak. Override with
   `XR_RUNTIME_JSON=<manifest>`.
 - Per-eye resolution starts at 50% of the runtime's recommendation. There is

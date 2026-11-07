@@ -54,12 +54,17 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 	utils::logInfo("Fragment shading rate: {} (uniform {}x{}, foveation {})", vrsState,
 	               m_shadingRate, m_shadingRate, foveation ? m_foveationRate : 0);
 
+	m_renderContext.foveationDebug = foveation && m_foveationDebug;
+	if (m_foveationDebug && !foveation)
+		utils::logWarn("Foveation debug overlay requires --vr-foveation");
+
 	m_profiler.init(device, MAX_FRAMES_IN_FLIGHT, GpuSlot::Count);
 	m_renderContext.profiler = &m_profiler;
 
 	m_backgroundPass.init(m_renderContext);
 	m_rasterizePass.init(m_renderContext);
 	m_sortPass.init(m_renderContext);
+	m_foveationDebugPass.init(m_renderContext);
 	m_tileRasterizer.init(device, allocator, m_renderContext, presentation.extent().width, presentation.extent().height);
 	m_guiPass.init(m_renderContext);
 
@@ -138,6 +143,7 @@ void Renderer::shutdown() {
 	m_tileRasterizer.shutdown();
 	if (m_guiReady)
 		m_guiPass.shutdown(m_renderContext);
+	m_foveationDebugPass.shutdown(m_renderContext);
 	m_rasterizePass.shutdown(m_renderContext);
 	m_backgroundPass.shutdown(m_renderContext);
 
@@ -486,7 +492,7 @@ void Renderer::drawFrame() {
 			    (frame.viewCount > 1 && frame.viewCameras[1].valid) ? frame.viewCameras[1].projection : leftProjection;
 			m_foveation = std::make_unique<Foveation>();
 			m_foveation->init(*m_device, *m_allocator, frame.targets[0].extent,
-			                  leftProjection, rightProjection, m_foveationRate);
+			                  leftProjection, rightProjection, m_foveationRate, m_foveationSize);
 			m_renderContext.foveationImages = m_foveation.get();
 		} catch (const std::exception &e) {
 			utils::logWarn("Fixed foveation unavailable: {}", e.what());
@@ -582,6 +588,8 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 		passCtx.renderArea = frame.targets[0].renderArea;
 		passCtx.clearTarget = frame.targets[0].clear;
 		m_tileRasterizer.record(m_renderContext, passCtx);
+		if (m_renderContext.foveationDebug)
+			m_foveationDebugPass.record(m_renderContext, passCtx);
 	} else {
 		// Bring each distinct target image into the colour-attachment layout once.
 		// Multiple views may share one image (desktop stereo test), so reusing
@@ -636,6 +644,8 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 					m_sortPass.record(m_renderContext, passCtx);
 				m_rasterizePass.record(m_renderContext, passCtx);
 			}
+			if (m_renderContext.foveationDebug)
+				m_foveationDebugPass.record(m_renderContext, passCtx);
 		}
 		if (m_profiler.valid())
 			m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Raster);

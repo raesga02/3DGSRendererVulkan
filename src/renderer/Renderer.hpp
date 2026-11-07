@@ -9,6 +9,7 @@
 #include "renderer/Foveation.hpp"
 #include "renderer/GpuProfiler.hpp"
 #include "renderer/passes/BackgroundPass.hpp"
+#include "renderer/passes/FoveationDebugPass.hpp"
 #include "renderer/passes/GUIPass.hpp"
 #include "renderer/passes/RasterizePass.hpp"
 #include "renderer/passes/SortPass.hpp"
@@ -79,6 +80,12 @@ class Renderer {
 	void setFoveation(uint32_t rate) {
 		m_foveationRate = rate;
 	}
+	void setFoveationSize(float radius) {
+		m_foveationSize = radius;
+	}
+	void setFoveationDebug(bool enabled) {
+		m_foveationDebug = enabled;
+	}
 
 	SceneState &getSceneState() {
 		return m_sceneState;
@@ -130,6 +137,7 @@ class Renderer {
 	SortPass m_sortPass;
 	TileRasterizer m_tileRasterizer;
 	GUIPass m_guiPass;
+	FoveationDebugPass m_foveationDebugPass;
 	bool m_guiReady = false;
 
 	GpuProfiler m_profiler;
@@ -162,6 +170,8 @@ class Renderer {
 	uint32_t m_screenshotEye = 0;
 	uint32_t m_shadingRate = 1;
 	uint32_t m_foveationRate = 0;
+	float m_foveationSize = 0.40f;
+	bool m_foveationDebug = false;
 	std::unique_ptr<Foveation> m_foveation;
 };
 

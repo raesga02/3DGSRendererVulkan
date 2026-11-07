@@ -37,6 +37,7 @@ struct RenderContext {
 	// are known, then reused for the session.
 	bool foveation = false;
 	Foveation *foveationImages = nullptr;
+	bool foveationDebug = false;
 };
 
 }        // namespace renderer

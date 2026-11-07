@@ -21,16 +21,27 @@ constexpr uint8_t kRate1x1 = 0;
 constexpr uint8_t kRate2x2 = (1u << 2) | 1u;
 constexpr uint8_t kRate4x4 = (2u << 2) | 2u;
 
-// Normalised to half the smaller viewport dimension.
-constexpr float kFoveaRadius = 0.55f;
-constexpr float kMidRadius = 1.05f;
-
 }        // namespace
 
 void Foveation::init(core::Device &device, gpu::Allocator &allocator, VkExtent2D viewExtent,
-                     const glm::mat4 &leftProjection, const glm::mat4 &rightProjection, uint32_t peripheralRate) {
+                     const glm::mat4 &leftProjection, const glm::mat4 &rightProjection,
+                     uint32_t peripheralRate, float foveaRadius) {
 	m_device = &device;
 	m_allocator = &allocator;
+	m_viewExtent = viewExtent;
+	m_peripheralRate = peripheralRate;
+	m_foveaRadius = std::clamp(foveaRadius, 0.10f, 0.90f);
+	m_midRadius = std::max(0.85f, m_foveaRadius + 0.20f);
+	m_halfExtent = 0.5f * static_cast<float>(std::min(viewExtent.width, viewExtent.height));
+	if (m_halfExtent <= 0.0f)
+		m_halfExtent = 1.0f;
+
+	auto centerPx = [&](const glm::mat4 &projection) {
+		const glm::vec2 centerNdc(-projection[2][0], -projection[2][1]);
+		return (centerNdc * 0.5f + 0.5f) * glm::vec2(viewExtent.width, viewExtent.height);
+	};
+	m_foveaCenterPx[0] = centerPx(leftProjection);
+	m_foveaCenterPx[1] = centerPx(rightProjection);
 
 	VkPhysicalDeviceFragmentShadingRatePropertiesKHR properties{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR};
@@ -54,8 +65,8 @@ void Foveation::init(core::Device &device, gpu::Allocator &allocator, VkExtent2D
 		           VK_IMAGE_ASPECT_COLOR_BIT);
 	}
 
-	const std::vector<uint8_t> leftMap = buildRateMap(viewExtent, leftProjection, peripheralRate);
-	const std::vector<uint8_t> rightMap = buildRateMap(viewExtent, rightProjection, peripheralRate);
+	const std::vector<uint8_t> leftMap = buildRateMap(m_foveaCenterPx[0], peripheralRate);
+	const std::vector<uint8_t> rightMap = buildRateMap(m_foveaCenterPx[1], peripheralRate);
 	const VkDeviceSize mapBytes = static_cast<VkDeviceSize>(leftMap.size());
 
 	gpu::Buffer staging;
@@ -86,29 +97,24 @@ void Foveation::init(core::Device &device, gpu::Allocator &allocator, VkExtent2D
 	staging.shutdown(allocator.get());
 	m_valid = true;
 
-	utils::logInfo("Fixed foveation: {}x{} view, {}x{} texels ({}x{} texel), peripheral rate {}x{}",
+	utils::logInfo("Fixed foveation: {}x{} view, {}x{} texels ({}x{} texel), fovea radius {:.2f}, mid {:.2f}, peripheral rate {}x{}",
 	               viewExtent.width, viewExtent.height, m_rateExtent.width, m_rateExtent.height,
-	               m_texelSize.width, m_texelSize.height, peripheralRate, peripheralRate);
+	               m_texelSize.width, m_texelSize.height, m_foveaRadius, m_midRadius, peripheralRate, peripheralRate);
 }
 
-std::vector<uint8_t> Foveation::buildRateMap(VkExtent2D viewExtent, const glm::mat4 &projection, uint32_t peripheralRate) const {
+std::vector<uint8_t> Foveation::buildRateMap(const glm::vec2 &centerPx, uint32_t peripheralRate) const {
 	std::vector<uint8_t> map(static_cast<size_t>(m_rateExtent.width) * m_rateExtent.height);
-
-	// The view's optical axis projects to NDC (-proj[2][0], -proj[2][1]).
-	const glm::vec2 centerNdc(-projection[2][0], -projection[2][1]);
-	const glm::vec2 centerPx = (centerNdc * 0.5f + 0.5f) * glm::vec2(viewExtent.width, viewExtent.height);
-	const float halfExtent = 0.5f * static_cast<float>(std::min(viewExtent.width, viewExtent.height));
 
 	for (uint32_t y = 0; y < m_rateExtent.height; ++y) {
 		for (uint32_t x = 0; x < m_rateExtent.width; ++x) {
 			const glm::vec2 texelCenter(
 			    (static_cast<float>(x) + 0.5f) * m_texelSize.width,
 			    (static_cast<float>(y) + 0.5f) * m_texelSize.height);
-			const float radius = glm::length(texelCenter - centerPx) / halfExtent;
+			const float radius = glm::length(texelCenter - centerPx) / m_halfExtent;
 
 			uint8_t rate = kRate1x1;
-			if (radius > kFoveaRadius)
-				rate = (radius > kMidRadius && peripheralRate >= 4) ? kRate4x4 : kRate2x2;
+			if (radius > m_foveaRadius)
+				rate = (radius > m_midRadius && peripheralRate >= 4) ? kRate4x4 : kRate2x2;
 
 			map[static_cast<size_t>(y) * m_rateExtent.width + x] = rate;
 		}
