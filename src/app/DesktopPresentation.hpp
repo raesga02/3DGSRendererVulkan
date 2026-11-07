@@ -26,6 +26,16 @@ class DesktopPresentation : public IPresentation {
 	void beginFrame(PresentFrame &out) override;
 	void endFrame(const PresentFrame &frame) override;
 
+	// Desktop stereo test: render two horizontally offset views side by side
+	// into the same swapchain image. Used to validate the multi-view path
+	// without a headset.
+	void setStereoTest(bool enabled) {
+		m_stereoTest = enabled;
+	}
+	bool stereoTest() const {
+		return m_stereoTest;
+	}
+
 	VkExtent2D extent() const override {
 		return m_swapchain.getSwapchainInfo().extent;
 	}
@@ -61,6 +71,7 @@ class DesktopPresentation : public IPresentation {
 	std::vector<VkSemaphore> m_renderFinishedSemaphores;
 
 	uint32_t m_currentFrame = 0;
+	bool m_stereoTest = false;
 };
 
 }        // namespace app

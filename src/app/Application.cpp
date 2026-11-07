@@ -29,11 +29,14 @@ void Application::run(int argc, char **argv) {
 			m_noSort = true;
 		} else if (arg == "--noidle") {
 			m_noIdle = true;
+		} else if (arg == "--stereo-test") {
+			m_stereoTest = true;
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
 	}
 	init(initialScene);
+	m_presentation.setStereoTest(m_stereoTest);
 	if (m_tiledMode)
 		m_renderer.getSceneState().renderMode = renderer::RenderMode::Tiled;
 	if (m_noSort)

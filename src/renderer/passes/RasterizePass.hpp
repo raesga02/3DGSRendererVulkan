@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Pass.hpp"
+#include "app/IPresentation.hpp"
 #include <array>
 #include <vulkan/vulkan.h>
 
@@ -16,10 +17,11 @@ class RasterizePass : public Pass {
 	void shutdown(RenderContext &renderCtx) override;
 	void record(RenderContext &renderCtx, const PassContext &passCtx) override;
 
-	// Points the descriptor sets at the current scene's buffers.
+	// Points the descriptor sets at the current scene's buffers. Camera buffers
+	// are indexed by [frame in flight][view].
 	void bind(VkBuffer gaussianBuffer,
 	          const std::array<VkBuffer, 2> &indexBuffers,
-	          const std::array<VkBuffer, 2> &cameraBuffers,
+	          const std::array<std::array<VkBuffer, app::kMaxViews>, 2> &cameraBuffers,
 	          const std::array<VkBuffer, 2> &indirectBuffers,
 	          uint32_t instanceCount);
 
@@ -34,7 +36,7 @@ class RasterizePass : public Pass {
 	VkDevice m_device = VK_NULL_HANDLE;
 	VkDescriptorSetLayout m_setLayout = VK_NULL_HANDLE;
 	VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
-	std::array<VkDescriptorSet, 2> m_sets{};
+	std::array<std::array<VkDescriptorSet, app::kMaxViews>, 2> m_sets{};
 
 	VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
 	VkPipeline m_pipeline = VK_NULL_HANDLE;

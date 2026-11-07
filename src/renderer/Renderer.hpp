@@ -64,6 +64,7 @@ class Renderer {
 		glm::mat4 view;
 		glm::mat4 proj;
 		glm::vec4 viewport;        // width, height, 1/width, 1/height
+		glm::vec4 viewportOrigin;  // x, y offset of the view within the target
 		glm::vec4 cameraPos;
 	};
 
@@ -72,7 +73,7 @@ class Renderer {
 	void scanScenes();
 	void createFrameBuffers();
 	void updateSortDirty();
-	void updateCameraBuffer(uint32_t frameIndex);
+	void updateCameraBuffers(const app::PresentFrame &frame);
 	void recordFrame(const app::PresentFrame &frame);
 	void captureScreenshot();
 	void updateStats();
@@ -92,6 +93,7 @@ class Renderer {
 
 	scene::GaussianScene m_scene;
 	scene::Camera m_camera;
+	std::array<scene::Camera, app::kMaxViews> m_viewCameras;
 	app::CameraController m_cameraController;
 
 	BackgroundPass m_backgroundPass;
@@ -105,7 +107,7 @@ class Renderer {
 	float m_profileSums[GpuSlot::Count] = {};
 	uint32_t m_profileFrames = 0;
 
-	std::array<gpu::Buffer, MAX_FRAMES_IN_FLIGHT> m_cameraBuffers;
+	std::array<std::array<gpu::Buffer, app::kMaxViews>, MAX_FRAMES_IN_FLIGHT> m_cameraBuffers;
 
 	gpu::Buffer m_readbackBuffer;
 	bool m_readbackValid = false;
@@ -124,6 +126,7 @@ class Renderer {
 	bool m_prevCull = false;
 	float m_prevMaxSplat = -1.0f;
 	bool m_prevSortEnabled = true;
+	bool m_warnedTiledMultiView = false;
 };
 
 }        // namespace renderer

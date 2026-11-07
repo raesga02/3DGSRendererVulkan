@@ -17,6 +17,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fmt/format.h>
+#include <glm/gtc/matrix_transform.hpp>
 #include <stdexcept>
 
 namespace renderer {
@@ -76,8 +77,9 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 void Renderer::shutdown() {
 	vkDeviceWaitIdle(m_device->get());
 
-	for (auto &buffer : m_cameraBuffers)
-		buffer.shutdown(m_allocator->get());
+	for (auto &frameBuffers : m_cameraBuffers)
+		for (auto &buffer : frameBuffers)
+			buffer.shutdown(m_allocator->get());
 
 	if (m_readbackValid) {
 		m_readbackBuffer.shutdown(m_allocator->get());
@@ -98,12 +100,14 @@ void Renderer::shutdown() {
 
 void Renderer::createFrameBuffers() {
 	VkDeviceSize uboSize = sizeof(CameraUbo);
-	for (auto &buffer : m_cameraBuffers) {
-		buffer.init(
-		    *m_device, m_allocator->get(), uboSize,
-		    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-		    VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
-		    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+	for (auto &frameBuffers : m_cameraBuffers) {
+		for (auto &buffer : frameBuffers) {
+			buffer.init(
+			    *m_device, m_allocator->get(), uboSize,
+			    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+			    VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+			    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+		}
 	}
 
 	VkExtent2D extent = m_presentation->extent();
@@ -172,10 +176,16 @@ void Renderer::loadScene(const std::string &plyPath) {
 		m_cameraController.frame(meta.center, meta.radius);
 
 	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> cameraHandles;
-	for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
-		cameraHandles[i] = m_cameraBuffers[i].get();
+	std::array<std::array<VkBuffer, app::kMaxViews>, MAX_FRAMES_IN_FLIGHT> viewCameraHandles;
+	for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+		cameraHandles[i] = m_cameraBuffers[i][0].get();
+		for (uint32_t v = 0; v < app::kMaxViews; ++v)
+			viewCameraHandles[i][v] = m_cameraBuffers[i][v].get();
+	}
 
 	// The sort pass produces the per-frame index buffers the rasterizer reads.
+	// Sorting happens once per frame from the centre (view 0) camera and is
+	// reused for all views.
 	m_sortPass.bind(m_scene.getGaussianBuffer(), cameraHandles, count);
 	m_tileRasterizer.bind(m_scene.getGaussianBuffer(), cameraHandles, count);
 
@@ -186,7 +196,7 @@ void Renderer::loadScene(const std::string &plyPath) {
 		indirectHandles[i] = m_sortPass.getIndirectBuffer(i);
 	}
 
-	m_rasterizePass.bind(m_scene.getGaussianBuffer(), indexHandles, cameraHandles, indirectHandles, count);
+	m_rasterizePass.bind(m_scene.getGaussianBuffer(), indexHandles, viewCameraHandles, indirectHandles, count);
 
 	// Derive a display name from the containing directory.
 	std::filesystem::path p(plyPath);
@@ -261,21 +271,63 @@ void Renderer::updateSortDirty() {
 	m_prevSortEnabled = m_sceneState.sortEnabled;
 }
 
-void Renderer::updateCameraBuffer(uint32_t frameIndex) {
-	VkExtent2D extent = m_presentation->extent();
+void Renderer::updateCameraBuffers(const app::PresentFrame &frame) {
+	const VkExtent2D fullExtent = m_presentation->extent();
+	const float fullAspect = fullExtent.height > 0
+	                             ? static_cast<float>(fullExtent.width) / static_cast<float>(fullExtent.height)
+	                             : 1.0f;
 
-	CameraUbo ubo{};
-	ubo.view = m_camera.getView();
-	ubo.proj = m_camera.getProjection();
-	ubo.viewport = glm::vec4(
-	    static_cast<float>(extent.width),
-	    static_cast<float>(extent.height),
-	    1.0f / static_cast<float>(extent.width),
-	    1.0f / static_cast<float>(extent.height));
-	glm::vec3 pos = m_camera.getPosition();
-	ubo.cameraPos = glm::vec4(pos, 1.0f);
+	// Camera-space right axis from the base view matrix, used to offset the
+	// synthetic stereo test eyes. Real XR eye poses arrive through the
+	// presentation layer in the next milestone.
+	const glm::mat4 &baseView = m_camera.getView();
+	glm::vec3 right{
+		baseView[0][0],
+		baseView[1][0],
+		baseView[2][0],
+	};
 
-	std::memcpy(m_cameraBuffers[frameIndex].getMappedData(), &ubo, sizeof(CameraUbo));
+	constexpr float kEyeSeparation = 0.064f;
+
+	for (uint32_t v = 0; v < frame.viewCount; ++v) {
+		const VkRect2D area = frame.targets[v].renderArea;
+		const float viewAspect = area.extent.height > 0
+		                             ? static_cast<float>(area.extent.width) / static_cast<float>(area.extent.height)
+		                             : fullAspect;
+
+		scene::Camera camera = m_camera;
+		if (frame.viewCount > 1) {
+			const float eyeOffset = (v == 0 ? -0.5f : 0.5f) * kEyeSeparation;
+			const glm::vec3 worldOffset = right * eyeOffset;
+			camera.setViewMatrix(baseView * glm::translate(glm::mat4(1.0f), -worldOffset));
+			camera.setPosition(m_camera.getPosition() + worldOffset);
+
+			// The base projection was built for the full window; scale X for the
+			// narrower per-view render area.
+			glm::mat4 projection = m_camera.getProjection();
+			projection[0][0] *= fullAspect / viewAspect;
+			camera.setProjectionMatrix(projection);
+		}
+		m_viewCameras[v] = camera;
+
+		CameraUbo ubo{};
+		ubo.view = camera.getView();
+		ubo.proj = camera.getProjection();
+		ubo.viewport = glm::vec4(
+		    static_cast<float>(area.extent.width),
+		    static_cast<float>(area.extent.height),
+		    1.0f / static_cast<float>(area.extent.width),
+		    1.0f / static_cast<float>(area.extent.height));
+		ubo.viewportOrigin = glm::vec4(
+		    static_cast<float>(area.offset.x),
+		    static_cast<float>(area.offset.y),
+		    0.0f,
+		    0.0f);
+		glm::vec3 pos = camera.getPosition();
+		ubo.cameraPos = glm::vec4(pos, 1.0f);
+
+		std::memcpy(m_cameraBuffers[frame.frameIndex][v].getMappedData(), &ubo, sizeof(CameraUbo));
+	}
 }
 
 void Renderer::drawFrame() {
@@ -308,7 +360,7 @@ void Renderer::drawFrame() {
 	}
 
 	if (m_scene.isLoaded())
-		updateCameraBuffer(frame.frameIndex);
+		updateCameraBuffers(frame);
 
 	recordFrame(frame);
 
@@ -360,13 +412,13 @@ void Renderer::captureScreenshot() {
 }
 
 void Renderer::recordFrame(const app::PresentFrame &frame) {
-	PassContext passCtx{
+	if (frame.viewCount == 0)
+		return;
+
+	PassContext baseCtx{
 		.cmd = frame.cmd,
 		.frameIndex = frame.frameIndex,
-		.imageIndex = frame.target.index,
-		.targetImage = frame.target.image,
-		.targetView = frame.target.view,
-		.extent = frame.target.extent,
+		.imageIndex = frame.targets[0].index,
 	};
 
 	if (m_profiler.valid()) {
@@ -375,33 +427,102 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 	}
 
 	const bool tiled = m_scene.isLoaded() && m_sceneState.renderMode == RenderMode::Tiled;
+	const bool useTiledPath = tiled && frame.viewCount == 1;
 
-	if (tiled) {
+	if (tiled && frame.viewCount > 1 && !m_warnedTiledMultiView) {
+		utils::logInfo("Tiled rasterizer does not support multiple views yet; using the instanced rasterizer");
+		m_warnedTiledMultiView = true;
+	}
+
+	if (useTiledPath) {
 		// The tile rasterizer writes the background and composites to the target,
 		// and emits its own per-stage timestamps.
+		PassContext passCtx = baseCtx;
+		passCtx.viewIndex = 0;
+		passCtx.targetImage = frame.targets[0].image;
+		passCtx.targetView = frame.targets[0].view;
+		passCtx.extent = frame.targets[0].extent;
+		passCtx.renderArea = frame.targets[0].renderArea;
+		passCtx.clearTarget = frame.targets[0].clear;
 		m_tileRasterizer.record(m_renderContext, passCtx);
 	} else {
-		m_backgroundPass.record(m_renderContext, passCtx);
-		if (m_profiler.valid())
-			m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Background);
+		// Bring each distinct target image into the colour-attachment layout once.
+		// Multiple views may share one image (desktop stereo test), so reusing
+		// UNDEFINED for the second view would discard the first view's pixels.
+		for (uint32_t v = 0; v < frame.viewCount; ++v) {
+			bool firstUse = true;
+			for (uint32_t p = 0; p < v; ++p) {
+				if (frame.targets[p].image == frame.targets[v].image) {
+					firstUse = false;
+					break;
+				}
+			}
+			if (!firstUse)
+				continue;
 
-		if (m_scene.isLoaded()) {
-			m_sortPass.record(m_renderContext, passCtx);
-			m_rasterizePass.record(m_renderContext, passCtx);
+			utils::vk::transitionImage(
+			    frame.cmd, frame.targets[v].image,
+			    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			    0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+			    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+		}
+
+		for (uint32_t v = 0; v < frame.viewCount; ++v) {
+			if (v > 0) {
+				// Adjacent dynamic-rendering instances touch the same image; make
+				// the previous view's writes visible for the next view's LOAD.
+				VkMemoryBarrier barrier{
+					.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+					.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+					.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+				};
+				vkCmdPipelineBarrier(frame.cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				                     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				                     0, 1, &barrier, 0, nullptr, 0, nullptr);
+			}
+
+			PassContext passCtx = baseCtx;
+			passCtx.viewIndex = v;
+			passCtx.targetImage = frame.targets[v].image;
+			passCtx.targetView = frame.targets[v].view;
+			passCtx.extent = frame.targets[v].extent;
+			passCtx.renderArea = frame.targets[v].renderArea;
+			passCtx.clearTarget = frame.targets[v].clear;
+
+			m_backgroundPass.record(m_renderContext, passCtx);
+			if (v == 0 && m_profiler.valid())
+				m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Background);
+
+			if (m_scene.isLoaded()) {
+				// Sort once from the centre view, then reuse for every view.
+				if (v == 0)
+					m_sortPass.record(m_renderContext, passCtx);
+				m_rasterizePass.record(m_renderContext, passCtx);
+			}
 		}
 		if (m_profiler.valid())
 			m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Raster);
 	}
 
-	if (m_sceneState.showGUI)
-		m_guiPass.record(m_renderContext, passCtx);
-	if (m_profiler.valid() && !tiled)
+	if (m_sceneState.showGUI) {
+		PassContext guiCtx = baseCtx;
+		guiCtx.targetImage = frame.targets[0].image;
+		guiCtx.targetView = frame.targets[0].view;
+		guiCtx.extent = frame.targets[0].extent;
+		guiCtx.renderArea = { .offset = { 0, 0 }, .extent = frame.targets[0].extent };
+		guiCtx.clearTarget = false;
+		m_guiPass.record(m_renderContext, guiCtx);
+	}
+	if (m_profiler.valid() && !useTiledPath)
 		m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Gui);
+
+	const VkImage targetImage = frame.targets[0].image;
+	const VkExtent2D targetExtent = frame.targets[0].extent;
 
 	// Hand the image to the presentation engine, optionally reading it back first.
 	if (m_sceneState.screenshotRequested && m_readbackValid) {
 		utils::vk::transitionImage(
-		    frame.cmd, frame.target.image,
+		    frame.cmd, targetImage,
 		    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 		    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
 		    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
@@ -412,18 +533,18 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 			.bufferImageHeight = 0,
 			.imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
 			.imageOffset = { 0, 0, 0 },
-			.imageExtent = { frame.target.extent.width, frame.target.extent.height, 1 },
+			.imageExtent = { targetExtent.width, targetExtent.height, 1 },
 		};
-		vkCmdCopyImageToBuffer(frame.cmd, frame.target.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_readbackBuffer.get(), 1, &region);
+		vkCmdCopyImageToBuffer(frame.cmd, targetImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_readbackBuffer.get(), 1, &region);
 
 		utils::vk::transitionImage(
-		    frame.cmd, frame.target.image,
+		    frame.cmd, targetImage,
 		    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 		    VK_ACCESS_TRANSFER_READ_BIT, 0,
 		    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 	} else {
 		utils::vk::transitionImage(
-		    frame.cmd, frame.target.image,
+		    frame.cmd, targetImage,
 		    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 		    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
 		    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
@@ -437,7 +558,7 @@ uint64_t Renderer::estimateGpuBytes(uint32_t count) const {
 	uint64_t scene = static_cast<uint64_t>(count) * sizeof(io::GpuGaussian);
 	uint64_t sort = SortPass::getGpuBytesForCount(count);
 	uint64_t pixels = static_cast<uint64_t>(m_presentationExtent.width) * m_presentationExtent.height;
-	uint64_t frame = 2 * sizeof(CameraUbo) + pixels * 4;
+	uint64_t frame = static_cast<uint64_t>(MAX_FRAMES_IN_FLIGHT) * app::kMaxViews * sizeof(CameraUbo) + pixels * 4;
 	uint64_t swapchain = static_cast<uint64_t>(m_presentationImageCount) * pixels * 4;
 	return scene + sort + frame + swapchain;
 }
@@ -453,7 +574,7 @@ void Renderer::updateStats() {
 	uint64_t pixels = static_cast<uint64_t>(m_presentationExtent.width) * m_presentationExtent.height;
 	m_stats.gpuSceneBytes = m_scene.isLoaded() ? m_scene.getGpuBytes() : 0;
 	m_stats.gpuSortBytes = m_sortPass.getGpuBytes();
-	m_stats.gpuFrameBytes = 2 * sizeof(CameraUbo) + pixels * 4;
+	m_stats.gpuFrameBytes = static_cast<uint64_t>(MAX_FRAMES_IN_FLIGHT) * app::kMaxViews * sizeof(CameraUbo) + pixels * 4;
 	m_stats.gpuSwapchainBytes = static_cast<uint64_t>(m_presentationImageCount) * pixels * 4;
 	m_stats.gpuTotalBytes = gpu::memory::totalBytes();
 	m_stats.gpuAllocations = gpu::memory::allocations();

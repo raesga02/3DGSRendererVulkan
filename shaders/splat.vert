@@ -13,6 +13,7 @@ layout(set = 0, binding = 0) uniform CameraUbo {
     mat4 view;
     mat4 proj;
     vec4 viewport;        // width, height, 1/width, 1/height
+    vec4 viewportOrigin;  // x, y offset of the view within the target
     vec4 cameraPos;
 } camera;
 

@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <stdexcept>
+#include <vector>
 
 namespace renderer {
 
@@ -55,14 +56,15 @@ void RasterizePass::createDescriptorSetLayout(RenderContext &renderCtx) {
 }
 
 void RasterizePass::createDescriptorPool(RenderContext &renderCtx) {
+	const uint32_t setCount = app::kMaxFramesInFlight * app::kMaxViews;
 	VkDescriptorPoolSize poolSizes[] = {
-		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, app::kMaxFramesInFlight },
-		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, app::kMaxFramesInFlight * 2 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, setCount },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, setCount * 2 },
 	};
 
 	VkDescriptorPoolCreateInfo poolInfo{
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-		.maxSets = app::kMaxFramesInFlight,
+		.maxSets = setCount,
 		.poolSizeCount = 2,
 		.pPoolSizes = poolSizes,
 	};
@@ -72,17 +74,19 @@ void RasterizePass::createDescriptorPool(RenderContext &renderCtx) {
 }
 
 void RasterizePass::createDescriptorSets(RenderContext &renderCtx) {
-	std::array<VkDescriptorSetLayout, app::kMaxFramesInFlight> layouts;
+	std::array<VkDescriptorSetLayout, app::kMaxFramesInFlight * app::kMaxViews> layouts;
 	layouts.fill(m_setLayout);
 
 	VkDescriptorSetAllocateInfo allocInfo{
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 		.descriptorPool = m_descriptorPool,
-		.descriptorSetCount = app::kMaxFramesInFlight,
+		.descriptorSetCount = static_cast<uint32_t>(layouts.size()),
 		.pSetLayouts = layouts.data(),
 	};
 
-	if (vkAllocateDescriptorSets(renderCtx.device->get(), &allocInfo, m_sets.data()) != VK_SUCCESS)
+	// Descriptor sets are stored as [frame][view], which is the same linear
+	// order the allocation uses.
+	if (vkAllocateDescriptorSets(renderCtx.device->get(), &allocInfo, &m_sets[0][0]) != VK_SUCCESS)
 		throw std::runtime_error("Failed to allocate rasterize descriptor sets");
 }
 
@@ -206,44 +210,47 @@ void RasterizePass::createPipeline(RenderContext &renderCtx) {
 
 void RasterizePass::bind(VkBuffer gaussianBuffer,
                          const std::array<VkBuffer, 2> &indexBuffers,
-                         const std::array<VkBuffer, 2> &cameraBuffers,
+                         const std::array<std::array<VkBuffer, app::kMaxViews>, 2> &cameraBuffers,
                          const std::array<VkBuffer, 2> &indirectBuffers,
                          uint32_t instanceCount) {
 	m_instanceCount = instanceCount;
 	m_indirectBuffers = indirectBuffers;
 
-	VkDescriptorBufferInfo uboInfo[app::kMaxFramesInFlight];
-	VkDescriptorBufferInfo gaussianInfo[app::kMaxFramesInFlight];
-	VkDescriptorBufferInfo indexInfo[app::kMaxFramesInFlight];
-	VkWriteDescriptorSet writes[app::kMaxFramesInFlight * 3];
-	uint32_t writeCount = 0;
+	std::array<std::array<VkDescriptorBufferInfo, app::kMaxViews>, app::kMaxFramesInFlight> uboInfo;
+	std::array<std::array<VkDescriptorBufferInfo, app::kMaxViews>, app::kMaxFramesInFlight> gaussianInfo;
+	std::array<std::array<VkDescriptorBufferInfo, app::kMaxViews>, app::kMaxFramesInFlight> indexInfo;
+	std::vector<VkWriteDescriptorSet> writes;
+	writes.reserve(app::kMaxFramesInFlight * app::kMaxViews * 3);
 
-	for (uint32_t i = 0; i < app::kMaxFramesInFlight; ++i) {
-		uboInfo[i] = { .buffer = cameraBuffers[i], .offset = 0, .range = VK_WHOLE_SIZE };
-		gaussianInfo[i] = { .buffer = gaussianBuffer, .offset = 0, .range = VK_WHOLE_SIZE };
-		indexInfo[i] = { .buffer = indexBuffers[i], .offset = 0, .range = VK_WHOLE_SIZE };
+	for (uint32_t f = 0; f < app::kMaxFramesInFlight; ++f) {
+		for (uint32_t v = 0; v < app::kMaxViews; ++v) {
+			uboInfo[f][v] = { .buffer = cameraBuffers[f][v], .offset = 0, .range = VK_WHOLE_SIZE };
+			gaussianInfo[f][v] = { .buffer = gaussianBuffer, .offset = 0, .range = VK_WHOLE_SIZE };
+			indexInfo[f][v] = { .buffer = indexBuffers[f], .offset = 0, .range = VK_WHOLE_SIZE };
 
-		writes[writeCount++] = { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			                     .dstSet = m_sets[i],
-			                     .dstBinding = 0,
-			                     .descriptorCount = 1,
-			                     .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			                     .pBufferInfo = &uboInfo[i] };
-		writes[writeCount++] = { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			                     .dstSet = m_sets[i],
-			                     .dstBinding = 1,
-			                     .descriptorCount = 1,
-			                     .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-			                     .pBufferInfo = &gaussianInfo[i] };
-		writes[writeCount++] = { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			                     .dstSet = m_sets[i],
-			                     .dstBinding = 2,
-			                     .descriptorCount = 1,
-			                     .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-			                     .pBufferInfo = &indexInfo[i] };
+			VkDescriptorSet set = m_sets[f][v];
+			writes.push_back({ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			                   .dstSet = set,
+			                   .dstBinding = 0,
+			                   .descriptorCount = 1,
+			                   .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			                   .pBufferInfo = &uboInfo[f][v] });
+			writes.push_back({ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			                   .dstSet = set,
+			                   .dstBinding = 1,
+			                   .descriptorCount = 1,
+			                   .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+			                   .pBufferInfo = &gaussianInfo[f][v] });
+			writes.push_back({ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			                   .dstSet = set,
+			                   .dstBinding = 2,
+			                   .descriptorCount = 1,
+			                   .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+			                   .pBufferInfo = &indexInfo[f][v] });
+		}
 	}
 
-	vkUpdateDescriptorSets(m_device, writeCount, writes, 0, nullptr);
+	vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
 
 void RasterizePass::record(RenderContext &renderCtx, const PassContext &passCtx) {
@@ -261,7 +268,7 @@ void RasterizePass::record(RenderContext &renderCtx, const PassContext &passCtx)
 
 	VkRenderingInfo renderingInfo{
 		.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-		.renderArea = { { 0, 0 }, passCtx.extent },
+		.renderArea = passCtx.renderArea,
 		.layerCount = 1,
 		.colorAttachmentCount = 1,
 		.pColorAttachments = &colorAttachment,
@@ -270,14 +277,14 @@ void RasterizePass::record(RenderContext &renderCtx, const PassContext &passCtx)
 	vkCmdBeginRendering(passCtx.cmd, &renderingInfo);
 
 	VkViewport viewport{
-		.x = 0.0f,
-		.y = 0.0f,
-		.width = static_cast<float>(passCtx.extent.width),
-		.height = static_cast<float>(passCtx.extent.height),
+		.x = static_cast<float>(passCtx.renderArea.offset.x),
+		.y = static_cast<float>(passCtx.renderArea.offset.y),
+		.width = static_cast<float>(passCtx.renderArea.extent.width),
+		.height = static_cast<float>(passCtx.renderArea.extent.height),
 		.minDepth = 0.0f,
 		.maxDepth = 1.0f,
 	};
-	VkRect2D scissor{ .offset = { 0, 0 }, .extent = passCtx.extent };
+	VkRect2D scissor = passCtx.renderArea;
 	vkCmdSetViewport(passCtx.cmd, 0, 1, &viewport);
 	vkCmdSetScissor(passCtx.cmd, 0, 1, &scissor);
 
@@ -294,7 +301,7 @@ void RasterizePass::record(RenderContext &renderCtx, const PassContext &passCtx)
 	};
 
 	vkCmdBindPipeline(passCtx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
-	vkCmdBindDescriptorSets(passCtx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &m_sets[passCtx.frameIndex], 0, nullptr);
+	vkCmdBindDescriptorSets(passCtx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &m_sets[passCtx.frameIndex][passCtx.viewIndex], 0, nullptr);
 	vkCmdPushConstants(passCtx.cmd, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
 
 	// When sorting is enabled the GPU has culled off-screen Gaussians and built

@@ -39,6 +39,7 @@ class Application {
 	bool m_tiledMode = false;
 	bool m_noSort = false;
 	bool m_noIdle = false;
+	bool m_stereoTest = false;
 
   private:
 	GLFWwindow *m_window = nullptr;

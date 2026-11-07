@@ -3,7 +3,6 @@
 #include "renderer/RenderContext.hpp"
 #include "renderer/SceneState.hpp"
 #include "utils/Shader.hpp"
-#include "utils/VulkanUtils.hpp"
 
 #include "core/Device.hpp"
 
@@ -134,25 +133,20 @@ void BackgroundPass::createPipeline(RenderContext &renderCtx) {
 }
 
 void BackgroundPass::record(RenderContext &renderCtx, const PassContext &passCtx) {
-	// Discard previous contents; we fully cover the target.
-	utils::vk::transitionImage(
-	    passCtx.cmd, passCtx.targetImage,
-	    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-	    0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-	    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-
+	// The renderer transitions the target image to COLOR_ATTACHMENT_OPTIMAL
+	// once per frame; a view only owns its own render area and may not clear it.
 	VkRenderingAttachmentInfo colorAttachment{
 		.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
 		.imageView = passCtx.targetView,
 		.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+		.loadOp = passCtx.clearTarget ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
 		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
 		.clearValue = { .color = { { 0.0f, 0.0f, 0.0f, 1.0f } } },
 	};
 
 	VkRenderingInfo renderingInfo{
 		.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-		.renderArea = { { 0, 0 }, passCtx.extent },
+		.renderArea = passCtx.renderArea,
 		.layerCount = 1,
 		.colorAttachmentCount = 1,
 		.pColorAttachments = &colorAttachment,
@@ -161,14 +155,14 @@ void BackgroundPass::record(RenderContext &renderCtx, const PassContext &passCtx
 	vkCmdBeginRendering(passCtx.cmd, &renderingInfo);
 
 	VkViewport viewport{
-		.x = 0.0f,
-		.y = 0.0f,
-		.width = static_cast<float>(passCtx.extent.width),
-		.height = static_cast<float>(passCtx.extent.height),
+		.x = static_cast<float>(passCtx.renderArea.offset.x),
+		.y = static_cast<float>(passCtx.renderArea.offset.y),
+		.width = static_cast<float>(passCtx.renderArea.extent.width),
+		.height = static_cast<float>(passCtx.renderArea.extent.height),
 		.minDepth = 0.0f,
 		.maxDepth = 1.0f,
 	};
-	VkRect2D scissor{ .offset = { 0, 0 }, .extent = passCtx.extent };
+	VkRect2D scissor = passCtx.renderArea;
 	vkCmdSetViewport(passCtx.cmd, 0, 1, &viewport);
 	vkCmdSetScissor(passCtx.cmd, 0, 1, &scissor);
 

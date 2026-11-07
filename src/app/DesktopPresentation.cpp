@@ -108,21 +108,47 @@ void DesktopPresentation::beginFrame(PresentFrame &out) {
 
 	out.frameIndex = m_currentFrame;
 	out.cmd = frame.commandBuffer;
-	out.target.image = m_swapchain.getImages()[imageIndex];
-	out.target.view = m_swapchain.getImageViews()[imageIndex];
-	out.target.index = imageIndex;
-	out.target.extent = m_swapchain.getSwapchainInfo().extent;
-	out.target.format = m_swapchain.getSwapchainInfo().format;
+
+	VkExtent2D fullExtent = m_swapchain.getSwapchainInfo().extent;
+	VkImage image = m_swapchain.getImages()[imageIndex];
+	VkImageView imageView = m_swapchain.getImageViews()[imageIndex];
+	VkFormat format = m_swapchain.getSwapchainInfo().format;
+
+	out.viewCount = m_stereoTest ? 2 : 1;
+	for (uint32_t v = 0; v < out.viewCount; ++v) {
+		PresentTarget &target = out.targets[v];
+		target.image = image;
+		target.view = imageView;
+		target.index = imageIndex;
+		target.extent = fullExtent;
+		target.format = format;
+
+		if (m_stereoTest) {
+			// Two views side by side in the same image. Only the first one
+			// clears, so the other view's pixels survive.
+			uint32_t halfWidth = fullExtent.width / 2;
+			target.renderArea = {
+				.offset = { static_cast<int32_t>(v * halfWidth), 0 },
+				.extent = { v == 0 ? halfWidth : fullExtent.width - halfWidth, fullExtent.height },
+			};
+			target.clear = (v == 0);
+		} else {
+			target.renderArea = { .offset = { 0, 0 }, .extent = fullExtent };
+			target.clear = true;
+		}
+	}
 }
 
 void DesktopPresentation::endFrame(const PresentFrame &frame) {
 	VkDevice vkDevice = m_device->get();
 	FrameData &frameData = m_frames[m_currentFrame];
 
+	const uint32_t imageIndex = frame.targets[0].index;
+
 	vkEndCommandBuffer(frame.cmd);
 
 	VkSemaphore waitSemaphores[] = { frameData.imageAvailable };
-	VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[frame.target.index] };
+	VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[imageIndex] };
 	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
 	VkSubmitInfo submitInfo{
@@ -146,7 +172,7 @@ void DesktopPresentation::endFrame(const PresentFrame &frame) {
 		.pWaitSemaphores = signalSemaphores,
 		.swapchainCount = 1,
 		.pSwapchains = swapchains,
-		.pImageIndices = &frame.target.index,
+		.pImageIndices = &imageIndex,
 	};
 
 	VkResult result = vkQueuePresentKHR(m_device->getPresentQueue(), &presentInfo);
