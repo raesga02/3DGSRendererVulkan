@@ -30,6 +30,7 @@ void GaussianScene::init(core::Device &device, gpu::Allocator &allocator, const 
 			m_metadata.cameraPosition = pose.position;
 			m_metadata.cameraForward = pose.forward;
 			m_metadata.cameraUp = pose.up;
+			m_metadata.worldUp = pose.worldUp;
 		}
 	}
 

@@ -62,6 +62,11 @@ class Renderer {
 		return m_worldScale;
 	}
 
+	// Which presentation target (eye) --screenshot reads back. 0 = left/default.
+	void setScreenshotEye(uint32_t eye) {
+		m_screenshotEye = eye;
+	}
+
 	SceneState &getSceneState() {
 		return m_sceneState;
 	}
@@ -141,6 +146,7 @@ class Renderer {
 	bool m_warnedTiledMultiView = false;
 	bool m_loggedViewCameras = false;
 	float m_worldScale = 1.0f;
+	uint32_t m_screenshotEye = 0;
 };
 
 }        // namespace renderer

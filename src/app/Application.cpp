@@ -5,6 +5,7 @@
 
 #include "utils/Log.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <csignal>
 #include <stdexcept>
@@ -54,6 +55,8 @@ void Application::run(int argc, char **argv) {
 			m_noCull = true;
 		} else if (arg == "--max-splat-fraction" && i + 1 < argc) {
 			m_maxSplatFraction = std::strtof(argv[++i], nullptr);
+		} else if (arg == "--screenshot-eye" && i + 1 < argc) {
+			m_screenshotEye = static_cast<uint32_t>(std::max(0, std::atoi(argv[++i])));
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
@@ -308,6 +311,7 @@ void Application::shutdownVr() {
 
 void Application::applyRendererOverrides() {
 	auto &state = m_renderer.getSceneState();
+	m_renderer.setScreenshotEye(m_screenshotEye);
 
 	if (m_noCull) {
 		state.cullLargeSplats = false;

@@ -26,6 +26,8 @@ struct SceneMetadata {
 	glm::vec3 cameraPosition{ 0.0f };
 	glm::vec3 cameraForward{ 0.0f, 0.0f, 1.0f };
 	glm::vec3 cameraUp{ 0.0f, 1.0f, 0.0f };
+	// Average camera up: the reconstruction's world vertical for VR leveling.
+	glm::vec3 worldUp{ 0.0f, 1.0f, 0.0f };
 };
 
 // Loads an INRIA-format 3DGS .ply (binary_little_endian, float properties).

@@ -1,5 +1,6 @@
 #include "CameraLoader.hpp"
 
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -63,6 +64,29 @@ bool loadFirstCamera(const std::string &path, CameraPose &outPose) {
 	// with COLMAP's y-down convention, so the world "up" is -column(1).
 	outPose.forward = glm::normalize(glm::vec3(rotation[2], rotation[5], rotation[8]));
 	outPose.up = -glm::normalize(glm::vec3(rotation[1], rotation[4], rotation[7]));
+
+	// Average the up vector over every camera: a single camera can be rolled,
+	// but the mean points along the reconstruction's actual vertical axis.
+	glm::vec3 upSum(0.0f);
+	uint32_t upCount = 0;
+	size_t search = 0;
+	while ((search = text.find("\"rotation\"", search)) != std::string::npos) {
+		std::vector<float> r;
+		if (parseFloatsAfter(text, search, 9, r)) {
+			glm::vec3 up = -glm::normalize(glm::vec3(r[1], r[4], r[7]));
+			if (glm::dot(up, up) > 1e-6f) {
+				upSum += up;
+				++upCount;
+			}
+		}
+		search += 10;
+	}
+
+	if (upCount > 0 && glm::dot(upSum, upSum) > 1e-6f)
+		outPose.worldUp = glm::normalize(upSum);
+	else
+		outPose.worldUp = outPose.up;
+
 	return true;
 }
 

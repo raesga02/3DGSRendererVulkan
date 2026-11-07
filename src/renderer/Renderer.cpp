@@ -200,11 +200,16 @@ void Renderer::loadScene(const std::string &plyPath) {
 	else
 		m_cameraController.frame(meta.center, meta.radius);
 
-	// Remember the scene's up so VR can level the starting view.
-	if (meta.hasCamera && glm::dot(meta.cameraUp, meta.cameraUp) > 1e-6f)
+	// Remember the scene's up so VR can level the starting view. Use the
+	// average camera up (the reconstruction's vertical), not the first camera's
+	// up, which is tilted with that camera's roll/pitch.
+	if (meta.hasCamera && glm::dot(meta.worldUp, meta.worldUp) > 1e-6f)
+		m_sceneUp = glm::normalize(meta.worldUp);
+	else if (meta.hasCamera && glm::dot(meta.cameraUp, meta.cameraUp) > 1e-6f)
 		m_sceneUp = glm::normalize(meta.cameraUp);
 	else
 		m_sceneUp = glm::vec3(0.0f, 1.0f, 0.0f);
+	utils::logInfo("Scene up for VR leveling: ({:.2f}, {:.2f}, {:.2f})", m_sceneUp.x, m_sceneUp.y, m_sceneUp.z);
 	m_loggedViewCameras = false;
 
 	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> cameraHandles;
@@ -607,13 +612,13 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 	if (m_profiler.valid() && !useTiledPath)
 		m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Gui);
 
-	const VkImage targetImage = frame.targets[0].image;
-	const VkExtent2D targetExtent = frame.targets[0].extent;
-
 	// Hand the image to the presentation engine, optionally reading it back first.
 	if (m_sceneState.screenshotRequested && m_readbackValid) {
+		const uint32_t eye = std::min(m_screenshotEye, frame.viewCount - 1);
+		const app::PresentTarget &shotTarget = frame.targets[eye];
+
 		utils::vk::transitionImage(
-		    frame.cmd, targetImage,
+		    frame.cmd, shotTarget.image,
 		    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 		    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
 		    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
@@ -624,13 +629,13 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 			.bufferImageHeight = 0,
 			.imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
 			.imageOffset = { 0, 0, 0 },
-			.imageExtent = { targetExtent.width, targetExtent.height, 1 },
+			.imageExtent = { shotTarget.extent.width, shotTarget.extent.height, 1 },
 		};
-		vkCmdCopyImageToBuffer(frame.cmd, targetImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_readbackBuffer.get(), 1, &region);
+		vkCmdCopyImageToBuffer(frame.cmd, shotTarget.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_readbackBuffer.get(), 1, &region);
 
 		utils::vk::transitionImage(
-		    frame.cmd, targetImage,
-		    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frame.targets[0].finalLayout,
+		    frame.cmd, shotTarget.image,
+		    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, shotTarget.finalLayout,
 		    VK_ACCESS_TRANSFER_READ_BIT, 0,
 		    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 	} else {
