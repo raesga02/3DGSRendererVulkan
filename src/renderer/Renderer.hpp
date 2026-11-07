@@ -67,8 +67,9 @@ class Renderer {
 		return m_worldScale;
 	}
 
-	// Which presentation target (eye) --screenshot reads back. 0 = left/default.
-	void setScreenshotEye(uint32_t eye) {
+	// Which presentation target (eye) --screenshot reads back. -1 = both eyes,
+	// 0/1 = a single eye.
+	void setScreenshotEye(int32_t eye) {
 		m_screenshotEye = eye;
 	}
 
@@ -179,7 +180,8 @@ class Renderer {
 	bool m_warnedTiledMultiView = false;
 	bool m_loggedViewCameras = false;
 	float m_worldScale = 1.0f;
-	uint32_t m_screenshotEye = 0;
+	int32_t m_screenshotEye = -1;
+	uint32_t m_screenshotEyeCount = 1;
 	uint32_t m_shadingRate = 1;
 	uint32_t m_foveationRate = 0;
 	float m_foveationSize = 0.40f;

@@ -62,7 +62,7 @@ void Application::run(int argc, char **argv) {
 		} else if (arg == "--max-distance" && i + 1 < argc) {
 			m_maxDistanceFactor = std::strtof(argv[++i], nullptr);
 		} else if (arg == "--screenshot-eye" && i + 1 < argc) {
-			m_screenshotEye = static_cast<uint32_t>(std::max(0, std::atoi(argv[++i])));
+			m_screenshotEye = std::atoi(argv[++i]);
 		} else if (arg == "--vr-shading-rate" && i + 1 < argc) {
 			const int rate = std::atoi(argv[++i]);
 			m_shadingRate = (rate == 2 || rate == 4) ? static_cast<uint32_t>(rate) : 1;

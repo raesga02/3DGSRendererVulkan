@@ -14,6 +14,7 @@
 #endif
 
 #include <chrono>
+#include <cstdint>
 #include <string>
 
 struct GLFWwindow;
@@ -57,7 +58,7 @@ class Application {
 	float m_minOpacity = -1.0f;              // < 0: use the default
 	float m_maxWorldScale = -1.0f;           // < 0: use the default
 	float m_maxDistanceFactor = -1.0f;       // < 0: use the default
-	uint32_t m_screenshotEye = 0;
+	int32_t m_screenshotEye = -1;        // -1: both eyes, 0/1: single eye
 	uint32_t m_shadingRate = 1;
 	uint32_t m_foveationRate = 0;
 	float m_foveationSize = 0.40f;

@@ -173,7 +173,8 @@ void Renderer::createFrameBuffers() {
 	VkExtent2D extent = m_presentation->extent();
 	m_readbackWidth = extent.width;
 	m_readbackHeight = extent.height;
-	VkDeviceSize readbackSize = static_cast<VkDeviceSize>(extent.width) * extent.height * 4;
+	VkDeviceSize perEyeBytes = static_cast<VkDeviceSize>(extent.width) * extent.height * 4;
+	VkDeviceSize readbackSize = perEyeBytes * app::kMaxViews;
 	m_readbackBuffer.init(
 	    *m_device, m_allocator->get(), readbackSize,
 	    VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -562,19 +563,31 @@ void Renderer::captureScreenshot() {
 	m_readbackBuffer.invalidate(m_allocator->get());
 
 	const uint8_t *src = static_cast<const uint8_t *>(m_readbackBuffer.getMappedData());
-	size_t pixelCount = static_cast<size_t>(m_readbackWidth) * m_readbackHeight;
-	std::vector<uint8_t> rgba(pixelCount * 4);
-	for (size_t i = 0; i < pixelCount; ++i) {
-		// Swapchain is BGRA; PNG wants RGBA.
-		rgba[i * 4 + 0] = src[i * 4 + 2];
-		rgba[i * 4 + 1] = src[i * 4 + 1];
-		rgba[i * 4 + 2] = src[i * 4 + 0];
-		rgba[i * 4 + 3] = src[i * 4 + 3];
+	const uint32_t eyeWidth = m_readbackWidth;
+	const uint32_t eyeHeight = m_readbackHeight;
+	const uint32_t eyes = std::max(1u, m_screenshotEyeCount);
+	const uint32_t outputWidth = eyeWidth * eyes;
+	const size_t eyePixels = static_cast<size_t>(eyeWidth) * eyeHeight;
+
+	std::vector<uint8_t> rgba(static_cast<size_t>(outputWidth) * eyeHeight * 4);
+	for (uint32_t eye = 0; eye < eyes; ++eye) {
+		const uint8_t *eyeSrc = src + static_cast<size_t>(eye) * eyePixels * 4;
+		for (uint32_t y = 0; y < eyeHeight; ++y) {
+			for (uint32_t x = 0; x < eyeWidth; ++x) {
+				const size_t si = (static_cast<size_t>(y) * eyeWidth + x) * 4;
+				const size_t di = (static_cast<size_t>(y) * outputWidth + static_cast<size_t>(eye) * eyeWidth + x) * 4;
+				// Swapchain is BGRA; PNG wants RGBA.
+				rgba[di + 0] = eyeSrc[si + 2];
+				rgba[di + 1] = eyeSrc[si + 1];
+				rgba[di + 2] = eyeSrc[si + 0];
+				rgba[di + 3] = eyeSrc[si + 3];
+			}
+		}
 	}
 
 	std::string path = fmt::format("saves/screenshot_{:03d}.png", m_sceneState.screenshotCounter++);
-	stbi_write_png(path.c_str(), static_cast<int>(m_readbackWidth), static_cast<int>(m_readbackHeight), 4, rgba.data(), static_cast<int>(m_readbackWidth) * 4);
-	utils::logInfo("Saved screenshot {}", path);
+	stbi_write_png(path.c_str(), static_cast<int>(outputWidth), static_cast<int>(eyeHeight), 4, rgba.data(), static_cast<int>(outputWidth) * 4);
+	utils::logInfo("Saved screenshot {} ({} eye(s), {}x{})", path, eyes, outputWidth, eyeHeight);
 
 	m_sceneState.screenshotRequested = false;
 }
@@ -746,30 +759,54 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 
 	// Hand the image to the presentation engine, optionally reading it back first.
 	if (m_sceneState.screenshotRequested && m_readbackValid) {
-		const uint32_t eye = std::min(m_screenshotEye, frame.viewCount - 1);
-		const app::PresentTarget &shotTarget = frame.targets[eye];
+		// Default: both eyes side by side. --screenshot-eye 0|1 selects one.
+		// Views sharing one image (desktop stereo test) are copied once.
+		std::array<uint32_t, app::kMaxViews> eyes{};
+		uint32_t eyeCount = 0;
+		if (m_screenshotEye >= 0 && static_cast<uint32_t>(m_screenshotEye) < frame.viewCount) {
+			eyes[0] = static_cast<uint32_t>(m_screenshotEye);
+			eyeCount = 1;
+		} else {
+			for (uint32_t v = 0; v < frame.viewCount && eyeCount < app::kMaxViews; ++v) {
+				bool duplicate = false;
+				for (uint32_t i = 0; i < eyeCount; ++i) {
+					if (frame.targets[eyes[i]].image == frame.targets[v].image) {
+						duplicate = true;
+						break;
+					}
+				}
+				if (!duplicate)
+					eyes[eyeCount++] = v;
+			}
+		}
+		m_screenshotEyeCount = std::max(1u, eyeCount);
 
-		utils::vk::transitionImage(
-		    frame.cmd, shotTarget.image,
-		    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-		    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+		const VkDeviceSize perEyeBytes = static_cast<VkDeviceSize>(m_readbackWidth) * m_readbackHeight * 4;
+		for (uint32_t i = 0; i < eyeCount; ++i) {
+			const app::PresentTarget &shotTarget = frame.targets[eyes[i]];
 
-		VkBufferImageCopy region{
-			.bufferOffset = 0,
-			.bufferRowLength = 0,
-			.bufferImageHeight = 0,
-			.imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
-			.imageOffset = { 0, 0, 0 },
-			.imageExtent = { shotTarget.extent.width, shotTarget.extent.height, 1 },
-		};
-		vkCmdCopyImageToBuffer(frame.cmd, shotTarget.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_readbackBuffer.get(), 1, &region);
+			utils::vk::transitionImage(
+			    frame.cmd, shotTarget.image,
+			    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+			    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
-		utils::vk::transitionImage(
-		    frame.cmd, shotTarget.image,
-		    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, shotTarget.finalLayout,
-		    VK_ACCESS_TRANSFER_READ_BIT, 0,
-		    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+			VkBufferImageCopy region{
+				.bufferOffset = perEyeBytes * i,
+				.bufferRowLength = 0,
+				.bufferImageHeight = 0,
+				.imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
+				.imageOffset = { 0, 0, 0 },
+				.imageExtent = { shotTarget.extent.width, shotTarget.extent.height, 1 },
+			};
+			vkCmdCopyImageToBuffer(frame.cmd, shotTarget.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_readbackBuffer.get(), 1, &region);
+
+			utils::vk::transitionImage(
+			    frame.cmd, shotTarget.image,
+			    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, shotTarget.finalLayout,
+			    VK_ACCESS_TRANSFER_READ_BIT, 0,
+			    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+		}
 	} else {
 		// Each distinct target image (one per eye in XR) goes to the layout its
 		// presentation expects. Desktop presents; XR hands back colour attachments.

@@ -18,6 +18,8 @@
 #   ./scripts/run-vr.sh room --vr-foveation 2 --vr-foveation-debug
 #   ./scripts/run-vr.sh room --vr-foveation 4 --vr-foveation-blur off
 #   ./scripts/run-vr.sh room --vr-foveation 4 --vr-refresh 90
+#   ./scripts/run-vr.sh room --screenshot                # both eyes, side by side
+#   ./scripts/run-vr.sh room --screenshot --screenshot-eye 1   # right eye only
 #   ./scripts/run-vr.sh room --nosort
 #   ./scripts/run-vr.sh counter --frames 120
 #

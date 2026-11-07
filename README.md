@@ -267,8 +267,8 @@ flatpak run --user --command=wivrn-server io.github.wivrn.wivrn   # if needed
   `--vr-foveation-ring <fraction>` the width of the 2x2 ring (default 0.32).
   At 1238x1296/eye this is roughly a 500 px fovea diameter and a 200 px
   intermediate ring; everything outside is 4x4 for `--vr-foveation 4`.
-  Measured on `room` at the defaults: ~13.4 ms total for `2` and ~12.6 ms for
-  `4`, versus 12.2 ms uniform 2x2 and 21.1 ms baseline.
+  Measured on `room` at the defaults: ~13.7 ms total for `2` and ~12.5 ms for
+  `4`, versus 12.2 ms uniform 2x2 and 21.2 ms baseline.
 - **Foveation blur:** on by default when foveation is enabled. The scene is
   rendered into per-eye offscreen targets, then a fullscreen pass mixes a 5x5
   Gaussian blur over the sharp sample using a smoothstep mask from
@@ -276,28 +276,30 @@ flatpak run --user --command=wivrn-server io.github.wivrn.wivrn   # if needed
   the intermediate ring lerps toward the blur, the periphery is fully blurred,
   and the mask overlaps the 1x1/2x2 VRS boundary to hide the class transition.
   `--vr-foveation-blur off` disables it for comparison. Measured on `room` at
-  1238x1296/eye: 13.24 ms with `4` + blur and 13.72 ms with `2` + blur.
+  1238x1296/eye: 12.5 ms with `4` + blur (12.1 ms without) and 13.7 ms with
+  `2` + blur (12.8 ms without).
 - **Refresh rate:** VR defaults to requesting **72 Hz** when foveation is
   enabled; `--vr-refresh 72|90|0` overrides it (`0` keeps the runtime default).
-  At 72 Hz the 13.2–13.7 ms frames fit the 13.9 ms budget instead of relying
+  At 72 Hz the 12.5–13.7 ms frames fit the 13.9 ms budget instead of relying
   on reprojection at 90 Hz.
 - **Foveation debug view:** `--vr-foveation-debug` (or right controller **A**)
   tints the splat image by rate-map class — green = 1x1, yellow = 2x2, red =
   4x4 — quantized to the 16x16 rate texels and centred on each eye's optical
   axis. It is drawn after the blur, so the classes stay crisp.
 - **Screenshots:** right controller **B** saves a screenshot to
-  `build/saves/screenshot_NNN.png`. `--screenshot` is the one-shot at launch
-  and `--screenshot-eye 0|1` selects the eye. These capture the rendered eye
-  image, not the composited/lens-distorted headset view. For the true headset
-  view, use the Quest's system screenshot shortcut (Meta/Oculus button +
-  trigger) and pull it with adb from `/sdcard/Oculus/Screenshots` or
+  `build/saves/screenshot_NNN.png`. By default the PNG is **both eyes
+  side by side** (two per-eye images in one file, e.g. 2476x1296 in VR).
+  `--screenshot` is the one-shot at launch; `--screenshot-eye 0|1` captures a
+  single eye instead. These capture the rendered eye image, not the
+  composited/lens-distorted headset view. For the true headset view, use the
+  Quest's system screenshot shortcut (Meta/Oculus button + trigger) and pull
+  it with adb from `/sdcard/Oculus/Screenshots` or
   `/sdcard/Pictures/Screenshots`.
 - The runtime manifest is taken from the WiVRn Flatpak. Override with
   `XR_RUNTIME_JSON=<manifest>`.
 - Per-eye resolution starts at 50% of the runtime's recommendation. There is
   no in-VR GUI yet; head tracking is active and the base viewpoint is the
   scene's initial camera. Locomotion is the next milestone.
-- `--screenshot` writes the left eye to `build/saves/screenshot_*.png`.
 - Stop with `Ctrl+C` or by ending the streaming session in the headset.
 
 ---
