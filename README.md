@@ -249,11 +249,12 @@ flatpak run --user --command=wivrn-server io.github.wivrn.wivrn   # if needed
 - The VR starting view is **leveled**: the scene camera's yaw is kept, but its
   pitch/roll is discarded so looking straight ahead does not inherit the
   dataset camera's downward tilt.
-- **Floater culling:** VR uses a more permissive screen-space threshold
-  (`max splat fraction 0.5`) than the desktop default (0.2). Use
-  `--no-cull` to disable it, or `--max-splat-fraction <f>` to tune it
-  (larger values keep more large splats; the desktop GUI slider now goes to
-  1.0 as well).
+- **Floater culling:** the screen-space filter is on by default (`max splat
+  fraction 0.5` in VR, 0.2 on desktop). Use `--max-splat-fraction <f>` to tune
+  it, or `--no-cull` to disable all floater filters. Optional 3D filters
+  (`--min-opacity <f>`, `--max-world-splat <fraction of scene radius>`,
+  `--max-distance <factor of scene radius>`) are available but default to 0
+  (off); aggressive settings can make sparse reconstructions look patchy.
 - The runtime manifest is taken from the WiVRn Flatpak. Override with
   `XR_RUNTIME_JSON=<manifest>`.
 - Per-eye resolution starts at 50% of the runtime's recommendation. There is

@@ -9,6 +9,8 @@
 #   ./scripts/run-vr.sh room --vr-world-scale 1.4
 #   ./scripts/run-vr.sh counter --no-cull
 #   ./scripts/run-vr.sh counter --max-splat-fraction 0.8
+#   ./scripts/run-vr.sh counter --min-opacity 0.02
+#   ./scripts/run-vr.sh counter --max-distance 1.5
 #   ./scripts/run-vr.sh room --nosort
 #   ./scripts/run-vr.sh counter --frames 120
 #

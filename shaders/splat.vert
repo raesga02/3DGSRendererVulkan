@@ -29,6 +29,9 @@ layout(push_constant) uniform Push {
     float splatScale;
     float maxRadiusFraction;        // 0 disables the floater filter
     int shDegree;
+    float minOpacity;               // discard fainter Gaussians
+    vec4 sceneCenterRadius;         // xyz = scene center, w = scene radius
+    vec4 worldCull;                 // x = max 3D stddev fraction, y = max distance factor
 } pc;
 
 layout(location = 0) out vec3 vColor;
@@ -85,7 +88,42 @@ void main() {
     uint gi = sortedIndices[gl_InstanceIndex];
     Gaussian g = gaussians[gi];
 
+    // Faint Gaussians are a common source of floating haze and contribute
+    // little; drop them before any projection work.
+    if (g.opacity < pc.minOpacity) {
+        gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+        vColor = vec3(0.0);
+        vOpacity = 0.0;
+        vCenter = vec2(0.0);
+        vConic = vec3(0.0);
+        return;
+    }
+
     vec3 worldPos = vec3(g.position[0], g.position[1], g.position[2]);
+
+    // 3D floater filters: large world-space Gaussians and far outliers. These
+    // catch blobs that are small on screen but clearly outside the scene.
+    if (pc.sceneCenterRadius.w > 0.0) {
+        if (pc.worldCull.x > 0.0) {
+            float stdMax = sqrt(max(g.cov3D[0], max(g.cov3D[3], g.cov3D[5])));
+            if (stdMax > pc.worldCull.x * pc.sceneCenterRadius.w) {
+                gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+                vColor = vec3(0.0);
+                vOpacity = 0.0;
+                vCenter = vec2(0.0);
+                vConic = vec3(0.0);
+                return;
+            }
+        }
+        if (pc.worldCull.y > 0.0 && length(worldPos - pc.sceneCenterRadius.xyz) > pc.worldCull.y * pc.sceneCenterRadius.w) {
+            gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+            vColor = vec3(0.0);
+            vOpacity = 0.0;
+            vCenter = vec2(0.0);
+            vConic = vec3(0.0);
+            return;
+        }
+    }
     vec4 viewPos4 = camera.view * vec4(worldPos, 1.0);
     vec3 viewPos = viewPos4.xyz;
 

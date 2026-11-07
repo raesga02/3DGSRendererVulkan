@@ -30,6 +30,15 @@ struct SceneState {
 	float splatScale = 1.0f;
 	bool cullLargeSplats = true;          // heuristic floater filter
 	float maxSplatFraction = 0.2f;        // max screen-space radius, fraction of min dimension
+	float minOpacity = 0.0f;              // discard fainter Gaussians (floater haze)
+
+	// 3D floater filters (0 disables each).
+	float maxWorldScaleFraction = 0.0f;   // cull if 3D stddev > fraction * sceneRadius
+	float maxDistanceFactor = 0.0f;       // cull if distance from center > factor * sceneRadius
+
+	// Scene bounds used by the 3D filters.
+	glm::vec3 sceneCenter{ 0.0f };
+	float sceneRadius = 0.0f;
 
 	// Loaded scene info.
 	std::string currentSceneName;

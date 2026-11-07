@@ -165,6 +165,9 @@ void GUIPass::newFrame(const RenderStats &stats) {
 	ImGui::Checkbox("Cull floaters", &m_sceneState->cullLargeSplats);
 	if (m_sceneState->cullLargeSplats)
 		ImGui::SliderFloat("Max splat size", &m_sceneState->maxSplatFraction, 0.02f, 1.0f, "%.2f");
+	ImGui::SliderFloat("Min opacity", &m_sceneState->minOpacity, 0.0f, 0.1f, "%.3f");
+	ImGui::SliderFloat("Max 3D size", &m_sceneState->maxWorldScaleFraction, 0.0f, 0.1f, "%.3f");
+	ImGui::SliderFloat("Max distance", &m_sceneState->maxDistanceFactor, 0.0f, 3.0f, "%.2f");
 
 	ImGui::Spacing();
 	ImGui::Separator();

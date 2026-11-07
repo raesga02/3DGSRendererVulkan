@@ -94,7 +94,7 @@ void RasterizePass::createPipelineLayout(RenderContext &renderCtx) {
 	VkPushConstantRange pushRange{
 		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
 		.offset = 0,
-		.size = sizeof(float) * 2 + sizeof(int32_t),
+		.size = sizeof(float) * 4 + sizeof(glm::vec4) * 2,
 	};
 
 	VkPipelineLayoutCreateInfo layoutInfo{
@@ -292,12 +292,19 @@ void RasterizePass::record(RenderContext &renderCtx, const PassContext &passCtx)
 		float splatScale;
 		float maxRadiusFraction;
 		int32_t shDegree;
+		float minOpacity;
+		glm::vec4 sceneCenterRadius;        // xyz = center, w = radius
+		glm::vec4 worldCull;                // x = max world scale fraction, y = max distance factor
 	};
 
 	PushConstants pc{
 		.splatScale = renderCtx.sceneState->splatScale,
 		.maxRadiusFraction = renderCtx.sceneState->cullLargeSplats ? renderCtx.sceneState->maxSplatFraction : 0.0f,
 		.shDegree = renderCtx.sceneState->shDegree,
+		.minOpacity = renderCtx.sceneState->minOpacity,
+		.sceneCenterRadius = glm::vec4(renderCtx.sceneState->sceneCenter, renderCtx.sceneState->sceneRadius),
+		.worldCull = glm::vec4(renderCtx.sceneState->maxWorldScaleFraction,
+		                       renderCtx.sceneState->maxDistanceFactor, 0.0f, 0.0f),
 	};
 
 	vkCmdBindPipeline(passCtx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);

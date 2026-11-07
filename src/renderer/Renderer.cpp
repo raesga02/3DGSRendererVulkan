@@ -241,6 +241,8 @@ void Renderer::loadScene(const std::string &plyPath) {
 	m_sceneState.gaussianCount = count;
 	m_sceneState.shDegree = meta.shDegree;
 	m_sceneState.maxShDegree = meta.shDegree;
+	m_sceneState.sceneCenter = meta.center;
+	m_sceneState.sceneRadius = meta.radius;
 	m_sceneState.sceneDirty = true;
 	m_hasSortView = false;        // force a sort rebuild for the new scene
 

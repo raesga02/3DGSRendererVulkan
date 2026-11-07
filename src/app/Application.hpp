@@ -54,6 +54,9 @@ class Application {
 	float m_vrWorldScale = 1.4f;
 	bool m_noCull = false;
 	float m_maxSplatFraction = -1.0f;        // < 0: use the default
+	float m_minOpacity = -1.0f;              // < 0: use the default
+	float m_maxWorldScale = -1.0f;           // < 0: use the default
+	float m_maxDistanceFactor = -1.0f;       // < 0: use the default
 	uint32_t m_screenshotEye = 0;
 
   private:

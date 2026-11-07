@@ -55,6 +55,12 @@ void Application::run(int argc, char **argv) {
 			m_noCull = true;
 		} else if (arg == "--max-splat-fraction" && i + 1 < argc) {
 			m_maxSplatFraction = std::strtof(argv[++i], nullptr);
+		} else if (arg == "--min-opacity" && i + 1 < argc) {
+			m_minOpacity = std::strtof(argv[++i], nullptr);
+		} else if (arg == "--max-world-splat" && i + 1 < argc) {
+			m_maxWorldScale = std::strtof(argv[++i], nullptr);
+		} else if (arg == "--max-distance" && i + 1 < argc) {
+			m_maxDistanceFactor = std::strtof(argv[++i], nullptr);
 		} else if (arg == "--screenshot-eye" && i + 1 < argc) {
 			m_screenshotEye = static_cast<uint32_t>(std::max(0, std::atoi(argv[++i])));
 		} else if (initialScene.empty()) {
@@ -315,19 +321,29 @@ void Application::applyRendererOverrides() {
 
 	if (m_noCull) {
 		state.cullLargeSplats = false;
-	} else if (m_maxSplatFraction > 0.0f) {
-		state.cullLargeSplats = true;
-		state.maxSplatFraction = m_maxSplatFraction;
-	} else if (m_vrMode) {
-		// Close-up VR content produces very large legitimate splats; the desktop
-		// default (0.20) removes too many of them. Be more permissive in VR.
-		state.cullLargeSplats = true;
-		state.maxSplatFraction = 0.5f;
+		state.minOpacity = 0.0f;
+		state.maxWorldScaleFraction = 0.0f;
+		state.maxDistanceFactor = 0.0f;
+	} else {
+		if (m_maxSplatFraction > 0.0f) {
+			state.cullLargeSplats = true;
+			state.maxSplatFraction = m_maxSplatFraction;
+		} else if (m_vrMode) {
+			// Close-up VR content produces very large legitimate splats; the
+			// desktop default (0.20) removes too many of them.
+			state.cullLargeSplats = true;
+			state.maxSplatFraction = 0.5f;
+		}
+
+		state.minOpacity = std::max(0.0f, m_minOpacity);
+		state.maxWorldScaleFraction = std::max(0.0f, m_maxWorldScale);
+		state.maxDistanceFactor = std::max(0.0f, m_maxDistanceFactor);
 	}
 
 	if (m_vrMode)
-		utils::logInfo("Floater cull: {} (max splat fraction {:.2f})",
-		               state.cullLargeSplats ? "on" : "off", state.maxSplatFraction);
+		utils::logInfo("Floater cull: {} (screen {:.2f}, min opacity {:.2f}, world size {:.3f}, distance {:.2f})",
+		               state.cullLargeSplats ? "on" : "off", state.maxSplatFraction, state.minOpacity,
+		               state.maxWorldScaleFraction, state.maxDistanceFactor);
 }
 
 }        // namespace app
