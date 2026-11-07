@@ -63,10 +63,25 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 	createFrameBuffers();
 	scanScenes();
 
-	// Load the requested scene, or a sensible default if one is available.
-	if (!initialScene.empty() && std::filesystem::exists(initialScene)) {
-		loadScene(initialScene);
-	} else if (!m_sceneState.scenePaths.empty()) {
+	// Load the requested scene. Accept a .ply path or a scene name (the
+	// directory under assets/models); fall back to the default otherwise.
+	std::string scenePath;
+	if (!initialScene.empty()) {
+		if (std::filesystem::exists(initialScene)) {
+			scenePath = initialScene;
+		} else {
+			for (size_t i = 0; i < m_sceneState.availableScenes.size(); ++i) {
+				if (m_sceneState.availableScenes[i] == initialScene) {
+					scenePath = m_sceneState.scenePaths[i];
+					break;
+				}
+			}
+			if (scenePath.empty())
+				utils::logWarn("Scene '{}' not found under assets/models; using the default", initialScene);
+		}
+	}
+
+	if (scenePath.empty() && !m_sceneState.scenePaths.empty()) {
 		size_t defaultIndex = 0;
 		for (size_t i = 0; i < m_sceneState.availableScenes.size(); ++i) {
 			if (m_sceneState.availableScenes[i] == "room") {
@@ -74,8 +89,11 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 				break;
 			}
 		}
-		loadScene(m_sceneState.scenePaths[defaultIndex]);
+		scenePath = m_sceneState.scenePaths[defaultIndex];
 	}
+
+	if (!scenePath.empty())
+		loadScene(scenePath);
 
 	m_lastFrameTime = std::chrono::steady_clock::now();
 }

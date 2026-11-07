@@ -20,6 +20,14 @@ BUILD="${BUILD:-$ROOT/build}"
 BIN="$BUILD/3DGSRendererVulkan"
 FLATPAK_DIR="$HOME/.local/share/flatpak/app/io.github.wivrn.wivrn/current/active/files"
 
+SCENE="${1:-room}"
+# Resolve a relative .ply path against the invocation directory before we cd.
+if [[ -f "$SCENE" ]]; then
+    SCENE="$(realpath "$SCENE")"
+elif [[ -f "$ROOT/$SCENE" ]]; then
+    SCENE="$ROOT/$SCENE"
+fi
+
 [[ -x "$BIN" ]] || { echo "Missing $BIN (build first: cmake --build build)" >&2; exit 1; }
 
 export XR_RUNTIME_JSON="${XR_RUNTIME_JSON:-$FLATPAK_DIR/share/openxr/1/openxr_wivrn.json}"
@@ -40,4 +48,4 @@ fi
 
 # The app resolves shaders relative to the working directory.
 cd "$BUILD"
-exec "$BIN" "${1:-room}" --vr "${@:2}"
+exec "$BIN" "$SCENE" --vr "${@:2}"

@@ -216,7 +216,8 @@ cmake --build build -j"$(nproc)"
 ./build/3DGSRendererVulkan
 ```
 
-See the **Controls** table above. Pass a scene path to load a specific `.ply`.
+See the **Controls** table above. Pass a scene name (e.g. `counter`) or a
+specific `.ply` path to load it.
 
 ### VR (OpenXR / WiVRn)
 
