@@ -16,6 +16,7 @@
 #   ./scripts/run-vr.sh room --vr-foveation 2 --vr-foveation-size 0.35
 #   ./scripts/run-vr.sh room --vr-foveation 2 --vr-foveation-ring 0.32
 #   ./scripts/run-vr.sh room --vr-foveation 2 --vr-foveation-debug
+#   ./scripts/run-vr.sh room --vr-foveation 4 --vr-foveation-blur off
 #   ./scripts/run-vr.sh room --nosort
 #   ./scripts/run-vr.sh counter --frames 120
 #

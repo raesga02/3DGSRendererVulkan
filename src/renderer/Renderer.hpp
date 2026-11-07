@@ -6,9 +6,11 @@
 #include "TileRasterizer.hpp"
 #include "app/CameraController.hpp"
 #include "gpu/Buffer.hpp"
+#include "gpu/Image.hpp"
 #include "renderer/Foveation.hpp"
 #include "renderer/GpuProfiler.hpp"
 #include "renderer/passes/BackgroundPass.hpp"
+#include "renderer/passes/FoveationBlurPass.hpp"
 #include "renderer/passes/FoveationDebugPass.hpp"
 #include "renderer/passes/GUIPass.hpp"
 #include "renderer/passes/RasterizePass.hpp"
@@ -86,6 +88,9 @@ class Renderer {
 	void setFoveationRing(float ring) {
 		m_foveationRing = ring;
 	}
+	void setFoveationBlur(bool enabled) {
+		m_foveationBlur = enabled;
+	}
 	void setFoveationDebug(bool enabled) {
 		m_foveationDebug = enabled;
 	}
@@ -111,6 +116,7 @@ class Renderer {
 
 	void scanScenes();
 	void createFrameBuffers();
+	void createOffscreenTargets();
 	void updateSortDirty();
 	void updateCameraBuffers(const app::PresentFrame &frame);
 	void recordFrame(const app::PresentFrame &frame);
@@ -142,6 +148,8 @@ class Renderer {
 	TileRasterizer m_tileRasterizer;
 	GUIPass m_guiPass;
 	FoveationDebugPass m_foveationDebugPass;
+	FoveationBlurPass m_foveationBlurPass;
+	std::array<gpu::Image, app::kMaxViews> m_offscreen;
 	bool m_guiReady = false;
 
 	GpuProfiler m_profiler;
@@ -176,6 +184,7 @@ class Renderer {
 	uint32_t m_foveationRate = 0;
 	float m_foveationSize = 0.40f;
 	float m_foveationRing = 0.32f;
+	bool m_foveationBlur = true;
 	bool m_foveationDebug = false;
 	std::unique_ptr<Foveation> m_foveation;
 };

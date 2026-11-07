@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <vulkan/vulkan.h>
 
 namespace core {
@@ -38,6 +39,12 @@ struct RenderContext {
 	bool foveation = false;
 	Foveation *foveationImages = nullptr;
 	bool foveationDebug = false;
+
+	// Post-process blur: renders to per-eye offscreen targets, then blends a
+	// 3x3 blur over the coarse regions. The source views are stable for the
+	// lifetime of the renderer.
+	bool foveationBlur = false;
+	std::array<VkImageView, 2> offscreenViews{};
 };
 
 }        // namespace renderer

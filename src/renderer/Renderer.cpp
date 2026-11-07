@@ -58,6 +58,11 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 	if (m_foveationDebug && !foveation)
 		utils::logWarn("Foveation debug overlay requires --vr-foveation");
 
+	m_renderContext.foveationBlur = foveation && m_foveationBlur;
+	createOffscreenTargets();
+	m_renderContext.offscreenViews = { m_offscreen[0].getView(), m_offscreen[1].getView() };
+	utils::logInfo("Foveation blur post-process: {}", m_renderContext.foveationBlur ? "on" : "off");
+
 	m_profiler.init(device, MAX_FRAMES_IN_FLIGHT, GpuSlot::Count);
 	m_renderContext.profiler = &m_profiler;
 
@@ -65,6 +70,7 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 	m_rasterizePass.init(m_renderContext);
 	m_sortPass.init(m_renderContext);
 	m_foveationDebugPass.init(m_renderContext);
+	m_foveationBlurPass.init(m_renderContext);
 	m_tileRasterizer.init(device, allocator, m_renderContext, presentation.extent().width, presentation.extent().height);
 	m_guiPass.init(m_renderContext);
 
@@ -144,6 +150,9 @@ void Renderer::shutdown() {
 	if (m_guiReady)
 		m_guiPass.shutdown(m_renderContext);
 	m_foveationDebugPass.shutdown(m_renderContext);
+	m_foveationBlurPass.shutdown(m_renderContext);
+	for (auto &image : m_offscreen)
+		image.shutdown(m_allocator->get());
 	m_rasterizePass.shutdown(m_renderContext);
 	m_backgroundPass.shutdown(m_renderContext);
 
@@ -151,8 +160,7 @@ void Renderer::shutdown() {
 }
 
 void Renderer::createFrameBuffers() {
-	VkDeviceSize uboSize = sizeof(CameraUbo);
-	for (auto &frameBuffers : m_cameraBuffers) {
+	VkDeviceSize uboSize = sizeof(CameraUbo);	for (auto &frameBuffers : m_cameraBuffers) {
 		for (auto &buffer : frameBuffers) {
 			buffer.init(
 			    *m_device, m_allocator->get(), uboSize,
@@ -172,6 +180,16 @@ void Renderer::createFrameBuffers() {
 	    VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
 	    VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
 	m_readbackValid = true;
+}
+
+void Renderer::createOffscreenTargets() {
+	VkExtent2D extent = m_presentation->extent();
+	VkFormat format = m_presentation->colorFormat();
+	for (auto &image : m_offscreen) {
+		image.init(*m_device, m_allocator->get(), extent, format,
+		           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		           VK_IMAGE_ASPECT_COLOR_BIT);
+	}
 }
 
 void Renderer::scanScenes() {
@@ -578,6 +596,7 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 
 	const bool tiled = m_scene.isLoaded() && m_sceneState.renderMode == RenderMode::Tiled;
 	const bool useTiledPath = tiled && frame.viewCount == 1;
+	const bool useOffscreen = !useTiledPath && m_renderContext.foveation && m_renderContext.foveationBlur;
 
 	if (tiled && frame.viewCount > 1 && !m_warnedTiledMultiView) {
 		utils::logInfo("Tiled rasterizer does not support multiple views yet; using the instanced rasterizer");
@@ -598,29 +617,36 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 		if (m_renderContext.foveationDebug)
 			m_foveationDebugPass.record(m_renderContext, passCtx);
 	} else {
-		// Bring each distinct target image into the colour-attachment layout once.
-		// Multiple views may share one image (desktop stereo test), so reusing
-		// UNDEFINED for the second view would discard the first view's pixels.
-		for (uint32_t v = 0; v < frame.viewCount; ++v) {
-			bool firstUse = true;
-			for (uint32_t p = 0; p < v; ++p) {
-				if (frame.targets[p].image == frame.targets[v].image) {
-					firstUse = false;
-					break;
+		if (useOffscreen) {
+			// Render into the per-eye offscreen images; they are sampled by the
+			// blur pass, so track their layout across frames.
+			for (uint32_t v = 0; v < frame.viewCount; ++v)
+				m_offscreen[v].transition(frame.cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+		} else {
+			// Bring each distinct target image into the colour-attachment layout once.
+			// Multiple views may share one image (desktop stereo test), so reusing
+			// UNDEFINED for the second view would discard the first view's pixels.
+			for (uint32_t v = 0; v < frame.viewCount; ++v) {
+				bool firstUse = true;
+				for (uint32_t p = 0; p < v; ++p) {
+					if (frame.targets[p].image == frame.targets[v].image) {
+						firstUse = false;
+						break;
+					}
 				}
-			}
-			if (!firstUse)
-				continue;
+				if (!firstUse)
+					continue;
 
-			utils::vk::transitionImage(
-			    frame.cmd, frame.targets[v].image,
-			    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			    0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-			    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+				utils::vk::transitionImage(
+				    frame.cmd, frame.targets[v].image,
+				    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				    0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+				    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+			}
 		}
 
 		for (uint32_t v = 0; v < frame.viewCount; ++v) {
-			if (v > 0) {
+			if (v > 0 && !useOffscreen) {
 				// Adjacent dynamic-rendering instances touch the same image; make
 				// the previous view's writes visible for the next view's LOAD.
 				VkMemoryBarrier barrier{
@@ -635,11 +661,19 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 
 			PassContext passCtx = baseCtx;
 			passCtx.viewIndex = v;
-			passCtx.targetImage = frame.targets[v].image;
-			passCtx.targetView = frame.targets[v].view;
-			passCtx.extent = frame.targets[v].extent;
-			passCtx.renderArea = frame.targets[v].renderArea;
-			passCtx.clearTarget = frame.targets[v].clear;
+			if (useOffscreen) {
+				passCtx.targetImage = m_offscreen[v].get();
+				passCtx.targetView = m_offscreen[v].getView();
+				passCtx.extent = frame.targets[v].extent;
+				passCtx.renderArea = { .offset = { 0, 0 }, .extent = frame.targets[v].extent };
+				passCtx.clearTarget = true;
+			} else {
+				passCtx.targetImage = frame.targets[v].image;
+				passCtx.targetView = frame.targets[v].view;
+				passCtx.extent = frame.targets[v].extent;
+				passCtx.renderArea = frame.targets[v].renderArea;
+				passCtx.clearTarget = frame.targets[v].clear;
+			}
 
 			m_backgroundPass.record(m_renderContext, passCtx);
 			if (v == 0 && m_profiler.valid())
@@ -651,9 +685,49 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 					m_sortPass.record(m_renderContext, passCtx);
 				m_rasterizePass.record(m_renderContext, passCtx);
 			}
-			if (m_renderContext.foveationDebug)
+			if (!useOffscreen && m_renderContext.foveationDebug)
 				m_foveationDebugPass.record(m_renderContext, passCtx);
 		}
+
+		if (useOffscreen) {
+			for (uint32_t v = 0; v < frame.viewCount; ++v)
+				m_offscreen[v].transition(frame.cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+			// The blur writes the presentation targets; bring each distinct image
+			// into the colour-attachment layout first.
+			for (uint32_t v = 0; v < frame.viewCount; ++v) {
+				bool firstUse = true;
+				for (uint32_t p = 0; p < v; ++p) {
+					if (frame.targets[p].image == frame.targets[v].image) {
+						firstUse = false;
+						break;
+					}
+				}
+				if (!firstUse)
+					continue;
+
+				utils::vk::transitionImage(
+				    frame.cmd, frame.targets[v].image,
+				    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				    0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+				    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+			}
+
+			for (uint32_t v = 0; v < frame.viewCount; ++v) {
+				PassContext outCtx = baseCtx;
+				outCtx.viewIndex = v;
+				outCtx.targetImage = frame.targets[v].image;
+				outCtx.targetView = frame.targets[v].view;
+				outCtx.extent = frame.targets[v].extent;
+				outCtx.renderArea = frame.targets[v].renderArea;
+				outCtx.clearTarget = false;
+
+				m_foveationBlurPass.record(m_renderContext, outCtx);
+				if (m_renderContext.foveationDebug)
+					m_foveationDebugPass.record(m_renderContext, outCtx);
+			}
+		}
+
 		if (m_profiler.valid())
 			m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Raster);
 	}
@@ -729,6 +803,7 @@ uint64_t Renderer::estimateGpuBytes(uint32_t count) const {
 	uint64_t sort = SortPass::getGpuBytesForCount(count);
 	uint64_t pixels = static_cast<uint64_t>(m_presentationExtent.width) * m_presentationExtent.height;
 	uint64_t frame = static_cast<uint64_t>(MAX_FRAMES_IN_FLIGHT) * app::kMaxViews * sizeof(CameraUbo) + pixels * 4;
+	frame += static_cast<uint64_t>(app::kMaxViews) * pixels * 4;        // offscreen post-process targets
 	uint64_t swapchain = static_cast<uint64_t>(m_presentationImageCount) * pixels * 4;
 	return scene + sort + frame + swapchain;
 }
@@ -745,6 +820,7 @@ void Renderer::updateStats() {
 	m_stats.gpuSceneBytes = m_scene.isLoaded() ? m_scene.getGpuBytes() : 0;
 	m_stats.gpuSortBytes = m_sortPass.getGpuBytes();
 	m_stats.gpuFrameBytes = static_cast<uint64_t>(MAX_FRAMES_IN_FLIGHT) * app::kMaxViews * sizeof(CameraUbo) + pixels * 4;
+	m_stats.gpuFrameBytes += static_cast<uint64_t>(app::kMaxViews) * pixels * 4;        // offscreen targets
 	m_stats.gpuSwapchainBytes = static_cast<uint64_t>(m_presentationImageCount) * pixels * 4;
 	m_stats.gpuTotalBytes = gpu::memory::totalBytes();
 	m_stats.gpuAllocations = gpu::memory::allocations();

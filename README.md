@@ -269,10 +269,18 @@ flatpak run --user --command=wivrn-server io.github.wivrn.wivrn   # if needed
   intermediate ring; everything outside is 4x4 for `--vr-foveation 4`.
   Measured on `room` at the defaults: ~13.4 ms total for `2` and ~12.6 ms for
   `4`, versus 12.2 ms uniform 2x2 and 21.1 ms baseline.
+- **Foveation blur:** on by default when foveation is enabled. The scene is
+  rendered into per-eye offscreen targets, then a fullscreen pass mixes a 3x3
+  Gaussian blur over the sharp sample using a smoothstep mask from
+  `foveaRadius` to `foveaRadius + ringWidth`. The fovea stays sharp, the
+  intermediate ring lerps toward the blur, and the periphery is fully blurred.
+  `--vr-foveation-blur off` disables it for comparison. Measured on `room` at
+  1238x1296/eye: 13.05 ms with `4` + blur (12.81 ms without), 13.84 ms with
+  `2` + blur. The blur costs only ~0.25 ms.
 - **Foveation debug view:** `--vr-foveation-debug` (or right controller **A**)
   tints the splat image by rate-map class — green = 1x1, yellow = 2x2, red =
   4x4 — quantized to the 16x16 rate texels and centred on each eye's optical
-  axis. It is translucent and only active when foveation is enabled.
+  axis. It is drawn after the blur, so the classes stay crisp.
 - **Screenshots:** right controller **B** saves a screenshot to
   `build/saves/screenshot_NNN.png`. `--screenshot` is the one-shot at launch
   and `--screenshot-eye 0|1` selects the eye. These capture the rendered eye

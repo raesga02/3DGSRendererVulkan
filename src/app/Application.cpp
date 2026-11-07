@@ -73,6 +73,10 @@ void Application::run(int argc, char **argv) {
 			m_foveationSize = std::strtof(argv[++i], nullptr);
 		} else if (arg == "--vr-foveation-ring" && i + 1 < argc) {
 			m_foveationRing = std::strtof(argv[++i], nullptr);
+		} else if (arg == "--vr-foveation-blur" && i + 1 < argc) {
+			m_foveationBlur = std::string(argv[++i]) != "off";
+		} else if (arg == "--no-foveation-blur") {
+			m_foveationBlur = false;
 		} else if (arg == "--vr-foveation-debug") {
 			m_foveationDebug = true;
 		} else if (initialScene.empty()) {
@@ -93,6 +97,7 @@ void Application::run(int argc, char **argv) {
 	m_renderer.setFoveation(m_foveationRate);
 	m_renderer.setFoveationSize(m_foveationSize);
 	m_renderer.setFoveationRing(m_foveationRing);
+	m_renderer.setFoveationBlur(m_foveationBlur);
 	m_renderer.setFoveationDebug(m_foveationDebug);
 	init(initialScene);
 	m_presentation.setStereoTest(m_stereoTest);
@@ -255,6 +260,7 @@ void Application::runVr(const std::string &initialScene) {
 	m_renderer.setFoveation(m_foveationRate);
 	m_renderer.setFoveationSize(m_foveationSize);
 	m_renderer.setFoveationRing(m_foveationRing);
+	m_renderer.setFoveationBlur(m_foveationBlur);
 	m_renderer.setFoveationDebug(m_foveationDebug);
 	m_renderer.init(m_device, m_allocator, nullptr, *m_xrPresentation, nullptr, initialScene);
 	m_renderer.getSceneState().showGUI = false;
