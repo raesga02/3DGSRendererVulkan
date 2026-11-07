@@ -67,6 +67,12 @@ class Renderer {
 		m_screenshotEye = eye;
 	}
 
+	// Uniform fragment shading rate: 1 = normal, 2 = 2x2, 4 = 4x4. Only takes
+	// effect when the device supports VK_KHR_fragment_shading_rate.
+	void setShadingRate(uint32_t rate) {
+		m_shadingRate = rate;
+	}
+
 	SceneState &getSceneState() {
 		return m_sceneState;
 	}
@@ -147,6 +153,7 @@ class Renderer {
 	bool m_loggedViewCameras = false;
 	float m_worldScale = 1.0f;
 	uint32_t m_screenshotEye = 0;
+	uint32_t m_shadingRate = 1;
 };
 
 }        // namespace renderer

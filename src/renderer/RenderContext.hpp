@@ -26,6 +26,11 @@ struct RenderContext {
 
 	SceneState *sceneState = nullptr;
 	GpuProfiler *profiler = nullptr;
+
+	// Optional VK_KHR_fragment_shading_rate path. Only the splat pipeline uses
+	// it; a fragmentSize of {1,1} disables the pipeline VRS state.
+	bool fragmentShadingRate = false;
+	VkExtent2D fragmentShadingRateExtent{ 1, 1 };
 };
 
 }        // namespace renderer

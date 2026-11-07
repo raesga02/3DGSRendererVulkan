@@ -38,6 +38,13 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 		.sceneState = &m_sceneState,
 	};
 
+	m_renderContext.fragmentShadingRate = device.fragmentShadingRateSupported() && m_shadingRate > 1;
+	m_renderContext.fragmentShadingRateExtent = { m_shadingRate, m_shadingRate };
+	const char *vrsState = m_renderContext.fragmentShadingRate ? "enabled"
+	                      : device.fragmentShadingRateSupported() ? "off"
+	                                                               : "unsupported";
+	utils::logInfo("Uniform fragment shading rate: {}x{} ({})", m_shadingRate, m_shadingRate, vrsState);
+
 	m_profiler.init(device, MAX_FRAMES_IN_FLIGHT, GpuSlot::Count);
 	m_renderContext.profiler = &m_profiler;
 

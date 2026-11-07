@@ -42,6 +42,15 @@ class Device {
 		return m_presentQueue;
 	}
 
+	// VK_KHR_fragment_shading_rate is optional; enabled only if both the
+	// extension and pipelineFragmentShadingRate are available.
+	bool fragmentShadingRateSupported() const {
+		return m_fragmentShadingRate;
+	}
+	void setFragmentShadingRateSupported(bool supported) {
+		m_fragmentShadingRate = supported;
+	}
+
   private:
 	void createTransientPool();
 
@@ -49,6 +58,7 @@ class Device {
 	VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
 	VkDevice m_device = VK_NULL_HANDLE;
 	bool m_ownsDevice = false;
+	bool m_fragmentShadingRate = false;
 
 	VkCommandPool m_transientCommandPool = VK_NULL_HANDLE;
 

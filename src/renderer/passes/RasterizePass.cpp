@@ -180,11 +180,20 @@ void RasterizePass::createPipeline(RenderContext &renderCtx) {
 		.pDynamicStates = dynamicStates,
 	};
 
+	VkPipelineFragmentShadingRateStateCreateInfoKHR vrsState{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_FRAGMENT_SHADING_RATE_STATE_CREATE_INFO_KHR,
+		.fragmentSize = renderCtx.fragmentShadingRateExtent,
+		.combinerOps = { VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR,
+			             VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR },
+	};
+
 	VkPipelineRenderingCreateInfo renderingInfo{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
 		.colorAttachmentCount = 1,
 		.pColorAttachmentFormats = &renderCtx.format,
 	};
+	if (renderCtx.fragmentShadingRate)
+		renderingInfo.pNext = &vrsState;
 
 	VkGraphicsPipelineCreateInfo pipelineInfo{
 		.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,

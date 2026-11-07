@@ -63,6 +63,9 @@ void Application::run(int argc, char **argv) {
 			m_maxDistanceFactor = std::strtof(argv[++i], nullptr);
 		} else if (arg == "--screenshot-eye" && i + 1 < argc) {
 			m_screenshotEye = static_cast<uint32_t>(std::max(0, std::atoi(argv[++i])));
+		} else if (arg == "--vr-shading-rate" && i + 1 < argc) {
+			const int rate = std::atoi(argv[++i]);
+			m_shadingRate = (rate == 2 || rate == 4) ? static_cast<uint32_t>(rate) : 1;
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
@@ -77,6 +80,7 @@ void Application::run(int argc, char **argv) {
 #endif
 	}
 
+	m_renderer.setShadingRate(m_shadingRate);
 	init(initialScene);
 	m_presentation.setStereoTest(m_stereoTest);
 	applyRendererOverrides();
@@ -225,6 +229,7 @@ void Application::runVr(const std::string &initialScene) {
 
 	m_device.initFromHandles(m_xrContext->physicalDevice(), m_xrContext->device(),
 	                         m_xrContext->queue(), m_xrContext->queueFamilyIndex());
+	m_device.setFragmentShadingRateSupported(m_xrContext->fragmentShadingRateSupported());
 	m_allocator.init(m_xrContext->physicalDevice(), m_xrContext->device(),
 	                 m_xrContext->vulkanInstance());
 
@@ -233,6 +238,7 @@ void Application::runVr(const std::string &initialScene) {
 
 	// No window/GUI in VR; keep the instanced rasterizer (the tile path is
 	// single-view for now).
+	m_renderer.setShadingRate(m_shadingRate);
 	m_renderer.init(m_device, m_allocator, nullptr, *m_xrPresentation, nullptr, initialScene);
 	m_renderer.getSceneState().showGUI = false;
 	m_renderer.getSceneState().renderMode = renderer::RenderMode::Instanced;

@@ -255,6 +255,12 @@ flatpak run --user --command=wivrn-server io.github.wivrn.wivrn   # if needed
   (`--min-opacity <f>`, `--max-world-splat <fraction of scene radius>`,
   `--max-distance <factor of scene radius>`) are available but default to 0
   (off); aggressive settings can make sparse reconstructions look patchy.
+- **Uniform VRS:** `--vr-shading-rate 1|2|4` enables `VK_KHR_fragment_shading_rate`
+  at 2x2 or 4x4 for all splat fragments (default 1 = off). Measured on `room`
+  at 1238x1296 per eye: 21.1 ms total (raster 19.3) at 1x1, 12.2 ms (raster
+  10.3) at 2x2, and 10.8 ms (raster 9.0) at 4x4. The uniform rates blur the
+  whole image; fixed foveation (sharp centre, coarse periphery) is the next
+  step.
 - The runtime manifest is taken from the WiVRn Flatpak. Override with
   `XR_RUNTIME_JSON=<manifest>`.
 - Per-eye resolution starts at 50% of the runtime's recommendation. There is

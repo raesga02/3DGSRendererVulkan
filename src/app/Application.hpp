@@ -58,6 +58,7 @@ class Application {
 	float m_maxWorldScale = -1.0f;           // < 0: use the default
 	float m_maxDistanceFactor = -1.0f;       // < 0: use the default
 	uint32_t m_screenshotEye = 0;
+	uint32_t m_shadingRate = 1;
 
   private:
 	GLFWwindow *m_window = nullptr;

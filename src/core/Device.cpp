@@ -26,8 +26,31 @@ void Device::init(VulkanContext &context) {
 	vkb::PhysicalDevice physicalDevice = phys_ret.value();
 	m_physicalDevice = physicalDevice.physical_device;
 
+	// VK_KHR_fragment_shading_rate is optional. Enable the extension and the
+	// pipeline feature only when the selected device supports both.
+	VkPhysicalDeviceFragmentShadingRateFeaturesKHR vrsSupported{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
+	VkPhysicalDeviceFeatures2 supportedFeatures{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+		.pNext = &vrsSupported};
+	vkGetPhysicalDeviceFeatures2(m_physicalDevice, &supportedFeatures);
+
+	m_fragmentShadingRate =
+	    physicalDevice.is_extension_present(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME) &&
+	    vrsSupported.pipelineFragmentShadingRate;
+
+	VkPhysicalDeviceFragmentShadingRateFeaturesKHR vrsFeatures{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR,
+		.pipelineFragmentShadingRate = m_fragmentShadingRate ? VK_TRUE : VK_FALSE,
+		.attachmentFragmentShadingRate = m_fragmentShadingRate && vrsSupported.attachmentFragmentShadingRate ? VK_TRUE : VK_FALSE,
+	};
+
 	// Build logical device.
+	if (m_fragmentShadingRate)
+		physicalDevice.enable_extension_if_present(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
 	vkb::DeviceBuilder builder(physicalDevice);
+	if (m_fragmentShadingRate)
+		builder.add_pNext(&vrsFeatures);
 	auto dev_ret = builder.build();
 	if (!dev_ret)
 		throw std::runtime_error("Failed to create logical device");

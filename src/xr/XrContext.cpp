@@ -185,16 +185,55 @@ void XrContext::createVulkan() {
 	enabled13.dynamicRendering = VK_TRUE;
 	enabled13.synchronization2 = supported13.synchronization2 ? VK_TRUE : VK_FALSE;
 
+	// Optional VK_KHR_fragment_shading_rate (used by the VR foveation path).
+	uint32_t deviceExtensionCount = 0;
+	vkEnumerateDeviceExtensionProperties(m_vkPhysicalDevice, nullptr, &deviceExtensionCount, nullptr);
+	std::vector<VkExtensionProperties> deviceExtensions(deviceExtensionCount);
+	vkEnumerateDeviceExtensionProperties(m_vkPhysicalDevice, nullptr, &deviceExtensionCount, deviceExtensions.data());
+	bool hasFragmentShadingRateExt = false;
+	for (const auto &ext : deviceExtensions) {
+		if (std::strcmp(ext.extensionName, VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME) == 0) {
+			hasFragmentShadingRateExt = true;
+			break;
+		}
+	}
+
+	VkPhysicalDeviceFragmentShadingRateFeaturesKHR vrsSupported{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
+	VkPhysicalDeviceFeatures2 vrsFeatureQuery{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+		.pNext = &vrsSupported};
+	vkGetPhysicalDeviceFeatures2(m_vkPhysicalDevice, &vrsFeatureQuery);
+
+	m_fragmentShadingRateSupported =
+	    hasFragmentShadingRateExt && vrsSupported.pipelineFragmentShadingRate;
+
+	VkPhysicalDeviceFragmentShadingRateFeaturesKHR vrsFeatures{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR,
+		.pipelineFragmentShadingRate = m_fragmentShadingRateSupported ? VK_TRUE : VK_FALSE,
+		.attachmentFragmentShadingRate = m_fragmentShadingRateSupported && vrsSupported.attachmentFragmentShadingRate ? VK_TRUE : VK_FALSE,
+	};
+	if (m_fragmentShadingRateSupported)
+		enabled13.pNext = &vrsFeatures;
+
+	utils::logInfo("Vulkan fragment shading rate: {}", m_fragmentShadingRateSupported ? "supported" : "unsupported");
+
 	float queuePriority = 1.0f;
 	VkDeviceQueueCreateInfo queueInfo{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
 	queueInfo.queueFamilyIndex = m_queueFamilyIndex;
 	queueInfo.queueCount = 1;
 	queueInfo.pQueuePriorities = &queuePriority;
 
+	const char *enabledDeviceExtensions[] = { VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME };
+
 	VkDeviceCreateInfo deviceCreateInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 	deviceCreateInfo.pNext = &enabled13;
 	deviceCreateInfo.queueCreateInfoCount = 1;
 	deviceCreateInfo.pQueueCreateInfos = &queueInfo;
+	if (m_fragmentShadingRateSupported) {
+		deviceCreateInfo.enabledExtensionCount = 1;
+		deviceCreateInfo.ppEnabledExtensionNames = enabledDeviceExtensions;
+	}
 
 	XrVulkanDeviceCreateInfoKHR xrDeviceInfo{XR_TYPE_VULKAN_DEVICE_CREATE_INFO_KHR};
 	xrDeviceInfo.systemId = m_systemId;

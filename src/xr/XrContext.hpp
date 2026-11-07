@@ -73,6 +73,10 @@ class XrContext {
 		return 0;
 	}
 
+	bool fragmentShadingRateSupported() const {
+		return m_fragmentShadingRateSupported;
+	}
+
   private:
 	void createInstance();
 	void createSystem();
@@ -110,6 +114,7 @@ class XrContext {
 	VkDevice m_vkDevice = VK_NULL_HANDLE;
 	VkQueue m_vkQueue = VK_NULL_HANDLE;
 	uint32_t m_queueFamilyIndex = 0;
+	bool m_fragmentShadingRateSupported = false;
 
 	PFN_xrCreateVulkanInstanceKHR m_pfnCreateVulkanInstance = nullptr;
 	PFN_xrCreateVulkanDeviceKHR m_pfnCreateVulkanDevice = nullptr;
