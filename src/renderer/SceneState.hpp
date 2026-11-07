@@ -55,6 +55,7 @@ struct SceneState {
 	// and the depth/tile sort must be rebuilt. When false, the previous sort is
 	// reused (idle-skip).
 	bool sortDirty = true;
+	bool forceSort = false;        // disable idle-skip (profiling)
 
 	// Screenshot request (F12).
 	bool screenshotRequested = false;

@@ -27,6 +27,8 @@ void Application::run(int argc, char **argv) {
 			m_tiledMode = true;
 		} else if (arg == "--nosort") {
 			m_noSort = true;
+		} else if (arg == "--noidle") {
+			m_noIdle = true;
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
@@ -36,6 +38,8 @@ void Application::run(int argc, char **argv) {
 		m_renderer.getSceneState().renderMode = renderer::RenderMode::Tiled;
 	if (m_noSort)
 		m_renderer.getSceneState().sortEnabled = false;
+	if (m_noIdle)
+		m_renderer.getSceneState().forceSort = true;
 	mainLoop();
 	shutdown();
 }

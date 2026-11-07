@@ -235,7 +235,7 @@ void Renderer::updateSortDirty() {
 	}
 
 	glm::mat4 view = m_camera.getView();
-	bool changed = !m_hasSortView || view != m_lastSortView ||
+	bool changed = m_sceneState.forceSort || !m_hasSortView || view != m_lastSortView ||
 	               static_cast<int>(m_sceneState.renderMode) != m_prevRenderMode ||
 	               m_sceneState.shDegree != m_prevShDegree ||
 	               m_sceneState.splatScale != m_prevSplatScale ||
