@@ -34,6 +34,11 @@ class XrContext {
 	// the session is running, before waitFrame.
 	InputActions pollActions();
 
+	// Requested display refresh rate in Hz; 0 keeps the runtime default.
+	void setRequestedRefreshRate(float rate) {
+		m_requestedRefreshRate = rate;
+	}
+
 	bool sessionRunning() const {
 		return m_sessionRunning;
 	}
@@ -94,6 +99,7 @@ class XrContext {
 	void createSession();
 	void createReferenceSpace();
 	void createActions();
+	void applyRefreshRate();
 
 	void handleEvent(const XrEventDataBuffer &event);
 	void check(XrResult result, const char *what) const;
@@ -105,6 +111,15 @@ class XrContext {
 		fn = reinterpret_cast<T>(raw);
 		if (!fn)
 			throw std::runtime_error(name);
+	}
+
+	template <typename T>
+	bool tryLoadProc(const char *name, T &fn) {
+		PFN_xrVoidFunction raw = nullptr;
+		if (xrGetInstanceProcAddr(m_instance, name, &raw) != XR_SUCCESS || !raw)
+			return false;
+		fn = reinterpret_cast<T>(raw);
+		return fn != nullptr;
 	}
 
   private:
@@ -136,6 +151,10 @@ class XrContext {
 	PFN_xrCreateVulkanDeviceKHR m_pfnCreateVulkanDevice = nullptr;
 	PFN_xrGetVulkanGraphicsDevice2KHR m_pfnGetVulkanDevice = nullptr;
 	PFN_xrGetVulkanGraphicsRequirements2KHR m_pfnGetVulkanRequirements = nullptr;
+	PFN_xrEnumerateDisplayRefreshRatesFB m_pfnEnumerateRefreshRates = nullptr;
+	PFN_xrRequestDisplayRefreshRateFB m_pfnRequestRefreshRate = nullptr;
+	bool m_hasDisplayRefreshRate = false;
+	float m_requestedRefreshRate = 0.0f;
 };
 
 }        // namespace xr

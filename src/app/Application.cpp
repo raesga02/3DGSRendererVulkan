@@ -79,6 +79,8 @@ void Application::run(int argc, char **argv) {
 			m_foveationBlur = false;
 		} else if (arg == "--vr-foveation-debug") {
 			m_foveationDebug = true;
+		} else if (arg == "--vr-refresh" && i + 1 < argc) {
+			m_vrRefreshRate = std::atoi(argv[++i]);
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
@@ -243,6 +245,10 @@ void Application::shutdown() {
 void Application::runVr(const std::string &initialScene) {
 #ifdef HAS_OPENXR
 	m_xrContext = std::make_unique<xr::XrContext>();
+	int refreshRate = m_vrRefreshRate;
+	if (refreshRate < 0)
+		refreshRate = m_foveationRate > 1 ? 72 : 0;
+	m_xrContext->setRequestedRefreshRate(refreshRate > 0 ? static_cast<float>(refreshRate) : 0.0f);
 	m_xrContext->init();
 
 	m_device.initFromHandles(m_xrContext->physicalDevice(), m_xrContext->device(),

@@ -270,13 +270,17 @@ flatpak run --user --command=wivrn-server io.github.wivrn.wivrn   # if needed
   Measured on `room` at the defaults: ~13.4 ms total for `2` and ~12.6 ms for
   `4`, versus 12.2 ms uniform 2x2 and 21.1 ms baseline.
 - **Foveation blur:** on by default when foveation is enabled. The scene is
-  rendered into per-eye offscreen targets, then a fullscreen pass mixes a 3x3
+  rendered into per-eye offscreen targets, then a fullscreen pass mixes a 5x5
   Gaussian blur over the sharp sample using a smoothstep mask from
-  `foveaRadius` to `foveaRadius + ringWidth`. The fovea stays sharp, the
-  intermediate ring lerps toward the blur, and the periphery is fully blurred.
+  `foveaRadius - 0.08` to `foveaRadius + ringWidth`. The fovea stays sharp,
+  the intermediate ring lerps toward the blur, the periphery is fully blurred,
+  and the mask overlaps the 1x1/2x2 VRS boundary to hide the class transition.
   `--vr-foveation-blur off` disables it for comparison. Measured on `room` at
-  1238x1296/eye: 13.05 ms with `4` + blur (12.81 ms without), 13.84 ms with
-  `2` + blur. The blur costs only ~0.25 ms.
+  1238x1296/eye: 13.24 ms with `4` + blur and 13.72 ms with `2` + blur.
+- **Refresh rate:** VR defaults to requesting **72 Hz** when foveation is
+  enabled; `--vr-refresh 72|90|0` overrides it (`0` keeps the runtime default).
+  At 72 Hz the 13.2–13.7 ms frames fit the 13.9 ms budget instead of relying
+  on reprojection at 90 Hz.
 - **Foveation debug view:** `--vr-foveation-debug` (or right controller **A**)
   tints the splat image by rate-map class — green = 1x1, yellow = 2x2, red =
   4x4 — quantized to the 16x16 rate texels and centred on each eye's optical

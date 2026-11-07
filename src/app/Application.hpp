@@ -64,6 +64,7 @@ class Application {
 	float m_foveationRing = 0.32f;
 	bool m_foveationBlur = true;
 	bool m_foveationDebug = false;
+	int m_vrRefreshRate = -1;        // -1: default (72 with foveation); 0: runtime default
 
   private:
 	GLFWwindow *m_window = nullptr;

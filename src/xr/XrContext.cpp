@@ -4,9 +4,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <fmt/format.h>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace xr {
@@ -63,6 +65,23 @@ void XrContext::createInstance() {
 		XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME,
 	};
 
+	uint32_t extensionCount = 0;
+	if (XR_SUCCEEDED(xrEnumerateInstanceExtensionProperties(nullptr, 0, &extensionCount, nullptr)) && extensionCount > 0) {
+		std::vector<XrExtensionProperties> available(extensionCount);
+		for (auto &extension : available)
+			extension.type = XR_TYPE_EXTENSION_PROPERTIES;
+		if (XR_SUCCEEDED(xrEnumerateInstanceExtensionProperties(nullptr, extensionCount, &extensionCount, available.data()))) {
+			for (const auto &extension : available) {
+				if (std::strcmp(extension.extensionName, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME) == 0) {
+					m_hasDisplayRefreshRate = true;
+					break;
+				}
+			}
+		}
+	}
+	if (m_hasDisplayRefreshRate)
+		extensions.push_back(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
+
 	XrInstanceCreateInfo createInfo{XR_TYPE_INSTANCE_CREATE_INFO};
 	createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
 	createInfo.enabledExtensionNames = extensions.data();
@@ -78,6 +97,56 @@ void XrContext::createInstance() {
 	loadProc("xrCreateVulkanDeviceKHR", m_pfnCreateVulkanDevice);
 	loadProc("xrGetVulkanGraphicsDevice2KHR", m_pfnGetVulkanDevice);
 	loadProc("xrGetVulkanGraphicsRequirements2KHR", m_pfnGetVulkanRequirements);
+
+	if (m_hasDisplayRefreshRate) {
+		m_hasDisplayRefreshRate =
+		    tryLoadProc("xrEnumerateDisplayRefreshRatesFB", m_pfnEnumerateRefreshRates) &&
+		    tryLoadProc("xrRequestDisplayRefreshRateFB", m_pfnRequestRefreshRate);
+	}
+}
+
+void XrContext::applyRefreshRate() {
+	if (!m_hasDisplayRefreshRate || !m_pfnEnumerateRefreshRates || !m_pfnRequestRefreshRate || m_session == XR_NULL_HANDLE)
+		return;
+
+	uint32_t count = 0;
+	if (XR_FAILED(m_pfnEnumerateRefreshRates(m_session, 0, &count, nullptr)) || count == 0) {
+		utils::logWarn("Could not enumerate display refresh rates");
+		return;
+	}
+
+	std::vector<float> rates(count);
+	if (XR_FAILED(m_pfnEnumerateRefreshRates(m_session, count, &count, rates.data())))
+		return;
+
+	std::string list;
+	for (size_t i = 0; i < rates.size(); ++i) {
+		if (i > 0)
+			list += ", ";
+		list += fmt::format("{:.0f}", rates[i]);
+	}
+	utils::logInfo("Supported display refresh rates: [{}] Hz", list);
+
+	if (m_requestedRefreshRate <= 0.0f)
+		return;
+
+	bool supported = false;
+	for (float rate : rates) {
+		if (std::abs(rate - m_requestedRefreshRate) < 0.5f) {
+			supported = true;
+			break;
+		}
+	}
+	if (!supported) {
+		utils::logWarn("Requested display refresh rate {:.0f} Hz is not supported", m_requestedRefreshRate);
+		return;
+	}
+
+	const XrResult result = m_pfnRequestRefreshRate(m_session, m_requestedRefreshRate);
+	if (XR_SUCCEEDED(result))
+		utils::logInfo("Requested display refresh rate {:.0f} Hz", m_requestedRefreshRate);
+	else
+		utils::logWarn("xrRequestDisplayRefreshRateFB failed ({})", static_cast<int>(result));
 }
 
 void XrContext::createSystem() {
@@ -378,6 +447,7 @@ void XrContext::handleEvent(const XrEventDataBuffer &event) {
 						beginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
 						check(xrBeginSession(m_session, &beginInfo), "xrBeginSession");
 						m_sessionRunning = true;
+						applyRefreshRate();
 					}
 					break;
 				}
