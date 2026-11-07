@@ -37,6 +37,9 @@ class XrPresentation : public app::IPresentation {
 	bool providesViewCameras() const override {
 		return true;
 	}
+	bool lastFrameRendered() const {
+		return m_lastFrameRendered;
+	}
 
   private:
 	static constexpr uint32_t kMaxFrames = app::kMaxFramesInFlight;
@@ -62,6 +65,11 @@ class XrPresentation : public app::IPresentation {
 	std::array<FrameData, kMaxFrames> m_frames{};
 	uint32_t m_frameCounter = 0;
 	bool m_loggedFirstFrame = false;
+	bool m_loggedFirstWait = false;
+	bool m_loggedFirstWaitReturn = false;
+	bool m_loggedFirstLayer = false;
+	bool m_lastShouldRender = false;
+	bool m_lastFrameRendered = false;
 
 	XrFrameState m_frameState{XR_TYPE_FRAME_STATE};
 	std::array<XrView, XrContext::kViewCount> m_views{};

@@ -3,6 +3,8 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include "utils/Log.hpp"
+
 #include <cstdlib>
 #include <csignal>
 #include <stdexcept>
@@ -46,6 +48,8 @@ void Application::run(int argc, char **argv) {
 			m_vrMode = true;
 		} else if (arg == "--frames" && i + 1 < argc) {
 			m_maxVrFrames = std::atoi(argv[++i]);
+		} else if (arg == "--vr-world-scale" && i + 1 < argc) {
+			m_vrWorldScale = std::strtof(argv[++i], nullptr);
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
@@ -218,6 +222,7 @@ void Application::runVr(const std::string &initialScene) {
 	m_renderer.init(m_device, m_allocator, nullptr, *m_xrPresentation, nullptr, initialScene);
 	m_renderer.getSceneState().showGUI = false;
 	m_renderer.getSceneState().renderMode = renderer::RenderMode::Instanced;
+	m_renderer.setWorldScale(m_vrWorldScale);
 	if (m_noSort)
 		m_renderer.getSceneState().sortEnabled = false;
 
@@ -227,7 +232,7 @@ void Application::runVr(const std::string &initialScene) {
 	std::signal(SIGINT, vrSignalHandler);
 	std::signal(SIGTERM, vrSignalHandler);
 
-	int renderedFrames = 0;
+	uint64_t renderedFrames = 0;
 	while (m_xrContext->pollEvents()) {
 		if (g_vrInterrupted || m_xrContext->quitRequested())
 			break;
@@ -245,7 +250,16 @@ void Application::runVr(const std::string &initialScene) {
 		m_renderer.update(input, dt);
 		m_renderer.drawFrame();
 
-		++renderedFrames;
+		if (m_xrPresentation->lastFrameRendered()) {
+			++renderedFrames;
+			if (renderedFrames == 1 || renderedFrames % 300 == 0)
+				utils::logInfo("VR frames rendered: {}", renderedFrames);
+		} else {
+			// The runtime did not ask for a frame (not visible/focused). Do not
+			// busy-spin: that floods the IPC and logs and can freeze the stream.
+			std::this_thread::sleep_for(std::chrono::milliseconds(2));
+		}
+
 		if (m_screenshotMode) {
 			if (renderedFrames == 3)
 				m_renderer.getSceneState().screenshotRequested = true;
@@ -253,7 +267,7 @@ void Application::runVr(const std::string &initialScene) {
 				break;
 		}
 
-		if (m_maxVrFrames > 0 && renderedFrames >= m_maxVrFrames)
+		if (m_maxVrFrames > 0 && renderedFrames >= static_cast<uint64_t>(m_maxVrFrames))
 			break;
 	}
 

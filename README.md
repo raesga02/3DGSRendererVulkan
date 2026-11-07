@@ -240,7 +240,14 @@ flatpak run --user --command=wivrn-server io.github.wivrn.wivrn   # if needed
 ```
 
 - The first argument is the scene; remaining flags are passed to the renderer
-  (for example `--nosort`, `--frames 120`, `--screenshot`).
+  (for example `--nosort`, `--frames 120`, `--screenshot`,
+  `--vr-world-scale 1.4`).
+- **World scale:** 3DGS reconstructions have arbitrary units. The default VR
+  world scale is `1.4` (scene scaled about the starting viewpoint). Larger
+  values make the room feel larger; use `--vr-world-scale <s>` to tune it.
+- The VR starting view is **leveled**: the scene camera's yaw is kept, but its
+  pitch/roll is discarded so looking straight ahead does not inherit the
+  dataset camera's downward tilt.
 - The runtime manifest is taken from the WiVRn Flatpak. Override with
   `XR_RUNTIME_JSON=<manifest>`.
 - Per-eye resolution starts at 50% of the runtime's recommendation. There is

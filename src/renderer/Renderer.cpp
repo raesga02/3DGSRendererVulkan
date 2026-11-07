@@ -182,6 +182,13 @@ void Renderer::loadScene(const std::string &plyPath) {
 	else
 		m_cameraController.frame(meta.center, meta.radius);
 
+	// Remember the scene's up so VR can level the starting view.
+	if (meta.hasCamera && glm::dot(meta.cameraUp, meta.cameraUp) > 1e-6f)
+		m_sceneUp = glm::normalize(meta.cameraUp);
+	else
+		m_sceneUp = glm::vec3(0.0f, 1.0f, 0.0f);
+	m_loggedViewCameras = false;
+
 	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> cameraHandles;
 	std::array<std::array<VkBuffer, app::kMaxViews>, MAX_FRAMES_IN_FLIGHT> viewCameraHandles;
 	for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -290,7 +297,27 @@ void Renderer::updateCameraBuffers(const app::PresentFrame &frame) {
 	// Camera-space right axis from the base view matrix, used to offset the
 	// synthetic desktop stereo test eyes. XR supplies real eye poses instead.
 	const glm::mat4 &baseView = m_camera.getView();
-	const glm::mat4 baseWorld = glm::inverse(baseView);
+	const glm::vec3 basePos = m_camera.getPosition();
+
+	// VR starts level: keep the scene camera's yaw but discard its pitch/roll, so
+	// looking straight ahead doesn't inherit the dataset camera's downward tilt.
+	glm::mat4 xrBaseView = baseView;
+	if (frame.viewCameras[0].valid) {
+		const glm::vec3 up = glm::normalize(m_sceneUp);
+		const glm::vec3 forward = -glm::normalize(glm::vec3(baseView[0][2], baseView[1][2], baseView[2][2]));
+		const glm::vec3 flat = forward - glm::dot(forward, up) * up;
+		if (glm::length(flat) > 1e-4f)
+			xrBaseView = glm::lookAt(basePos, basePos + glm::normalize(flat), up);
+	}
+
+	// 3DGS scenes are in arbitrary units. Scale scene->eye space about the base
+	// camera. Keeping the homogeneous row at 1 makes this a plain affine scale:
+	// the monocular view is unchanged, but IPD/head-motion parallax is divided
+	// by the scale, so larger values make the world feel larger.
+	xrBaseView = xrBaseView * m_worldScale;
+	xrBaseView[3][3] = 1.0f;
+	const glm::mat4 xrBaseWorld = glm::inverse(xrBaseView);
+
 	glm::vec3 right{
 		baseView[0][0],
 		baseView[1][0],
@@ -309,11 +336,11 @@ void Renderer::updateCameraBuffers(const app::PresentFrame &frame) {
 		const app::PresentViewCamera &presented = frame.viewCameras[v];
 
 		if (presented.valid) {
-			// Compose the runtime's eye pose with the renderer's base camera
-			// frame, so the head pose is world-space while locomotion stays here.
-			camera.setViewMatrix(presented.localView * baseView);
+			// Compose the runtime's eye pose with the scaled scene frame, so the
+			// head pose is metric while locomotion/scaling stays in the renderer.
+			camera.setViewMatrix(presented.localView * xrBaseView);
 			camera.setProjectionMatrix(presented.projection);
-			camera.setPosition(glm::vec3(baseWorld * glm::vec4(presented.localPosition, 1.0f)));
+			camera.setPosition(glm::vec3(xrBaseWorld * glm::vec4(presented.localPosition, 1.0f)));
 
 			if (v == 0 && !m_loggedViewCameras) {
 				const glm::vec3 &local = presented.localPosition;
@@ -324,11 +351,11 @@ void Renderer::updateCameraBuffers(const app::PresentFrame &frame) {
 					return -glm::normalize(glm::vec3(m[0][2], m[1][2], m[2][2]));
 				};
 				const glm::vec3 baseForward = forwardOf(baseView);
-				const glm::vec3 localForward = forwardOf(presented.localView);
 				const glm::vec3 eyeForward = forwardOf(camera.getView());
+				utils::logInfo("XR world scale {:.2f}: base eye height {:.2f} m, eye pos ({:.2f}, {:.2f}, {:.2f})",
+				               m_worldScale, glm::vec3(xrBaseWorld[3]).y, eye.x, eye.y, eye.z);
 				utils::logInfo("XR view0: basePos ({:.2f}, {:.2f}, {:.2f}) baseFwd ({:.2f}, {:.2f}, {:.2f})", base.x, base.y, base.z, baseForward.x, baseForward.y, baseForward.z);
-				utils::logInfo("XR view0: localPos ({:.2f}, {:.2f}, {:.2f}) localFwd ({:.2f}, {:.2f}, {:.2f})", local.x, local.y, local.z, localForward.x, localForward.y, localForward.z);
-				utils::logInfo("XR view0: eyePos ({:.2f}, {:.2f}, {:.2f}) eyeFwd ({:.2f}, {:.2f}, {:.2f})", eye.x, eye.y, eye.z, eyeForward.x, eyeForward.y, eyeForward.z);
+				utils::logInfo("XR view0: localPos ({:.2f}, {:.2f}, {:.2f}) eyeFwd ({:.2f}, {:.2f}, {:.2f})", local.x, local.y, local.z, eyeForward.x, eyeForward.y, eyeForward.z);
 				utils::logInfo("XR view0: proj00 {:.3f} proj11 {:.3f} proj20 {:.3f} proj21 {:.3f} proj22 {:.3f} proj23 {:.3f}",
 				               projection[0][0], projection[1][1], projection[2][0], projection[2][1],
 				               projection[2][2], projection[2][3]);

@@ -154,9 +154,25 @@ void XrPresentation::destroyFrameData(core::Device &device) {
 void XrPresentation::beginFrame(app::PresentFrame &out) {
 	out = app::PresentFrame{};
 	m_frameBegun = false;
+	m_lastFrameRendered = false;
+
+	if (!m_loggedFirstWait) {
+		utils::logInfo("OpenXR waiting for first frame");
+		m_loggedFirstWait = true;
+	}
 
 	if (!m_context->waitFrame(m_frameState))
 		return;
+
+	if (!m_loggedFirstWaitReturn) {
+		utils::logInfo("OpenXR first xrWaitFrame returned (shouldRender={})", m_frameState.shouldRender);
+		m_loggedFirstWaitReturn = true;
+	}
+
+	if (m_frameState.shouldRender != m_lastShouldRender) {
+		utils::logInfo("OpenXR shouldRender = {}", m_frameState.shouldRender);
+		m_lastShouldRender = m_frameState.shouldRender;
+	}
 
 	m_frameBegun = true;
 
@@ -170,7 +186,6 @@ void XrPresentation::beginFrame(app::PresentFrame &out) {
 		utils::logInfo("OpenXR first rendered frame: {}x{} per eye", m_extent.width, m_extent.height);
 		m_loggedFirstFrame = true;
 	}
-
 	for (auto &eye : m_eyes)
 		eye.acquire();
 
@@ -191,6 +206,7 @@ void XrPresentation::beginFrame(app::PresentFrame &out) {
 	out.frameIndex = slot;
 	out.cmd = frame.cmd;
 	out.viewCount = XrContext::kViewCount;
+	m_lastFrameRendered = true;
 
 	for (uint32_t i = 0; i < XrContext::kViewCount; ++i) {
 		const XrView &view = m_views[i];
@@ -237,8 +253,12 @@ void XrPresentation::endFrame(const app::PresentFrame &frame) {
 
 		for (auto &eye : m_eyes)
 			eye.release();
-	}
 
+		if (!m_loggedFirstLayer) {
+			utils::logInfo("OpenXR submitting stereo layer ({}x{} per eye)", m_extent.width, m_extent.height);
+			m_loggedFirstLayer = true;
+		}
+	}
 	XrCompositionLayerProjection layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
 	std::array<XrCompositionLayerProjectionView, XrContext::kViewCount> layerViews{};
 	const XrCompositionLayerBaseHeader *baseLayer = nullptr;

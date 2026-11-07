@@ -23,7 +23,7 @@ void XrSwapchain::init(XrSession session, VkDevice device, VkExtent2D extent, Vk
 	m_format = format;
 
 	XrSwapchainCreateInfo createInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
-	createInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+	createInfo.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
 	createInfo.format = format;
 	createInfo.sampleCount = 1;
 	createInfo.width = extent.width;

@@ -50,6 +50,7 @@ class Application {
 	bool m_stereoTest = false;
 	bool m_vrMode = false;
 	int m_maxVrFrames = -1;
+	float m_vrWorldScale = 1.4f;
 
   private:
 	GLFWwindow *m_window = nullptr;

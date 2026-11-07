@@ -52,6 +52,16 @@ class Renderer {
 
 	void loadScene(const std::string &plyPath);
 
+	// Uniform scale applied to the scene around the base camera in VR. 3DGS
+	// reconstructions are in arbitrary units; 1.0 means "one scene unit = one
+	// metre". Values > 1 make the world feel larger.
+	void setWorldScale(float scale) {
+		m_worldScale = scale > 0.0f ? scale : 1.0f;
+	}
+	float getWorldScale() const {
+		return m_worldScale;
+	}
+
 	SceneState &getSceneState() {
 		return m_sceneState;
 	}
@@ -94,6 +104,7 @@ class Renderer {
 	scene::GaussianScene m_scene;
 	scene::Camera m_camera;
 	std::array<scene::Camera, app::kMaxViews> m_viewCameras;
+	glm::vec3 m_sceneUp{ 0.0f, 1.0f, 0.0f };
 	app::CameraController m_cameraController;
 
 	BackgroundPass m_backgroundPass;
@@ -129,6 +140,7 @@ class Renderer {
 	bool m_prevSortEnabled = true;
 	bool m_warnedTiledMultiView = false;
 	bool m_loggedViewCameras = false;
+	float m_worldScale = 1.0f;
 };
 
 }        // namespace renderer

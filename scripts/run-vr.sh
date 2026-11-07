@@ -6,6 +6,7 @@
 #
 # Examples:
 #   ./scripts/run-vr.sh room
+#   ./scripts/run-vr.sh room --vr-world-scale 1.4
 #   ./scripts/run-vr.sh room --nosort
 #   ./scripts/run-vr.sh counter --frames 120
 #
