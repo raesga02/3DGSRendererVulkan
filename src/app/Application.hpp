@@ -53,6 +53,7 @@ class Application {
 	bool m_vrMode = false;
 	int m_maxVrFrames = -1;
 	float m_vrWorldScale = 1.4f;
+	float m_vrResolutionScale = 0.5f;
 	bool m_noCull = false;
 	float m_maxSplatFraction = -1.0f;        // < 0: use the default
 	float m_minOpacity = -1.0f;              // < 0: use the default

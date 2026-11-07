@@ -16,9 +16,9 @@ namespace xr {
 
 namespace {
 
-// The runtime recommends a very high per-eye resolution. Start VR at a reduced
-// scale so the first room-scale test is comfortably interactive.
-constexpr float kResolutionScale = 0.5f;
+// The runtime recommends a very high per-eye resolution. The presentation
+// starts at a reduced scale (0.5) so the first room-scale test is comfortably
+// interactive; Application raises it via XrPresentation::setResolutionScale.
 
 glm::mat4 localViewFromPose(const XrPosef &pose) {
 	glm::quat orientation(pose.orientation.w, pose.orientation.x, pose.orientation.y, pose.orientation.z);
@@ -66,11 +66,11 @@ void XrPresentation::init(core::Device &device, XrContext &context) {
 	const uint32_t recommendedWidth = std::min(left.recommendedImageRectWidth, right.recommendedImageRectWidth);
 	const uint32_t recommendedHeight = std::min(left.recommendedImageRectHeight, right.recommendedImageRectHeight);
 
-	m_extent.width = std::max(64u, static_cast<uint32_t>(recommendedWidth * kResolutionScale)) & ~1u;
-	m_extent.height = std::max(64u, static_cast<uint32_t>(recommendedHeight * kResolutionScale)) & ~1u;
+	m_extent.width = std::max(64u, static_cast<uint32_t>(recommendedWidth * m_resolutionScale)) & ~1u;
+	m_extent.height = std::max(64u, static_cast<uint32_t>(recommendedHeight * m_resolutionScale)) & ~1u;
 
 	utils::logInfo("OpenXR render resolution: {}x{} per eye (recommended {}x{}, scale {:.2f})",
-	               m_extent.width, m_extent.height, recommendedWidth, recommendedHeight, kResolutionScale);
+	               m_extent.width, m_extent.height, recommendedWidth, recommendedHeight, m_resolutionScale);
 
 	for (auto &eye : m_eyes)
 		eye.init(context.session(), device.get(), m_extent, m_format);

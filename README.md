@@ -297,9 +297,15 @@ flatpak run --user --command=wivrn-server io.github.wivrn.wivrn   # if needed
   `/sdcard/Pictures/Screenshots`.
 - The runtime manifest is taken from the WiVRn Flatpak. Override with
   `XR_RUNTIME_JSON=<manifest>`.
-- Per-eye resolution starts at 50% of the runtime's recommendation. There is
-  no in-VR GUI yet; head tracking is active and the base viewpoint is the
-  scene's initial camera. Locomotion is the next milestone.
+- **Render resolution:** per-eye buffers default to **50%** of the runtime's
+  recommendation (1238x1296 from 2476x2594 on the Quest runtime). Raise it with
+  `--vr-resolution-scale <fraction>` (clamped to 0.25–2.0); the runtime
+  upsamples/downsamples to the panel. Measured on `room` with foveation 4:
+  0.5 = 12.5 ms, 0.55 = 13.9 ms, 0.6 = 15.1 ms, 0.75 = 19.9 ms, 1.0 = 28.9 ms.
+  The 72 Hz budget is 13.9 ms, so 0.5 is the stable default and 0.55 is right
+  at the limit.
+- There is no in-VR GUI yet; head tracking is active and the base viewpoint is
+  the scene's initial camera. Locomotion is the next milestone.
 - Stop with `Ctrl+C` or by ending the streaming session in the headset.
 
 ---

@@ -22,6 +22,12 @@ class XrPresentation : public app::IPresentation {
 	void init(core::Device &device, XrContext &context);
 	void shutdown();
 
+	// Per-eye render scale relative to the runtime's recommended resolution.
+	// Must be set before init(); clamped to [0.25, 2.0].
+	void setResolutionScale(float scale) {
+		m_resolutionScale = scale < 0.25f ? 0.25f : (scale > 2.0f ? 2.0f : scale);
+	}
+
 	void beginFrame(app::PresentFrame &out) override;
 	void endFrame(const app::PresentFrame &frame) override;
 
@@ -61,6 +67,7 @@ class XrPresentation : public app::IPresentation {
 	std::array<XrSwapchain, XrContext::kViewCount> m_eyes;
 	VkExtent2D m_extent{};
 	VkFormat m_format = VK_FORMAT_UNDEFINED;
+	float m_resolutionScale = 0.5f;
 
 	std::array<FrameData, kMaxFrames> m_frames{};
 	uint32_t m_frameCounter = 0;

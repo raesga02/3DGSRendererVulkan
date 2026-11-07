@@ -81,6 +81,8 @@ void Application::run(int argc, char **argv) {
 			m_foveationDebug = true;
 		} else if (arg == "--vr-refresh" && i + 1 < argc) {
 			m_vrRefreshRate = std::atoi(argv[++i]);
+		} else if (arg == "--vr-resolution-scale" && i + 1 < argc) {
+			m_vrResolutionScale = std::strtof(argv[++i], nullptr);
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
@@ -258,6 +260,7 @@ void Application::runVr(const std::string &initialScene) {
 	                 m_xrContext->vulkanInstance());
 
 	m_xrPresentation = std::make_unique<xr::XrPresentation>();
+	m_xrPresentation->setResolutionScale(m_vrResolutionScale);
 	m_xrPresentation->init(m_device, *m_xrContext);
 
 	// No window/GUI in VR; keep the instanced rasterizer (the tile path is
