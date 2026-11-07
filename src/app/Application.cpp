@@ -50,6 +50,10 @@ void Application::run(int argc, char **argv) {
 			m_maxVrFrames = std::atoi(argv[++i]);
 		} else if (arg == "--vr-world-scale" && i + 1 < argc) {
 			m_vrWorldScale = std::strtof(argv[++i], nullptr);
+		} else if (arg == "--no-cull") {
+			m_noCull = true;
+		} else if (arg == "--max-splat-fraction" && i + 1 < argc) {
+			m_maxSplatFraction = std::strtof(argv[++i], nullptr);
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
@@ -66,6 +70,7 @@ void Application::run(int argc, char **argv) {
 
 	init(initialScene);
 	m_presentation.setStereoTest(m_stereoTest);
+	applyRendererOverrides();
 	if (m_tiledMode)
 		m_renderer.getSceneState().renderMode = renderer::RenderMode::Tiled;
 	if (m_noSort)
@@ -223,6 +228,7 @@ void Application::runVr(const std::string &initialScene) {
 	m_renderer.getSceneState().showGUI = false;
 	m_renderer.getSceneState().renderMode = renderer::RenderMode::Instanced;
 	m_renderer.setWorldScale(m_vrWorldScale);
+	applyRendererOverrides();
 	if (m_noSort)
 		m_renderer.getSceneState().sortEnabled = false;
 
@@ -298,6 +304,26 @@ void Application::shutdownVr() {
 		m_xrContext.reset();
 	}
 #endif
+}
+
+void Application::applyRendererOverrides() {
+	auto &state = m_renderer.getSceneState();
+
+	if (m_noCull) {
+		state.cullLargeSplats = false;
+	} else if (m_maxSplatFraction > 0.0f) {
+		state.cullLargeSplats = true;
+		state.maxSplatFraction = m_maxSplatFraction;
+	} else if (m_vrMode) {
+		// Close-up VR content produces very large legitimate splats; the desktop
+		// default (0.20) removes too many of them. Be more permissive in VR.
+		state.cullLargeSplats = true;
+		state.maxSplatFraction = 0.5f;
+	}
+
+	if (m_vrMode)
+		utils::logInfo("Floater cull: {} (max splat fraction {:.2f})",
+		               state.cullLargeSplats ? "on" : "off", state.maxSplatFraction);
 }
 
 }        // namespace app

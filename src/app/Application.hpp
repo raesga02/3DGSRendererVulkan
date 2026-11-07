@@ -31,6 +31,7 @@ class Application {
 	void mainLoop();
 	void updateInput();
 	void runVr(const std::string &initialScene);
+	void applyRendererOverrides();
 	void shutdown();
 	void shutdownVr();
 
@@ -51,6 +52,8 @@ class Application {
 	bool m_vrMode = false;
 	int m_maxVrFrames = -1;
 	float m_vrWorldScale = 1.4f;
+	bool m_noCull = false;
+	float m_maxSplatFraction = -1.0f;        // < 0: use the default
 
   private:
 	GLFWwindow *m_window = nullptr;

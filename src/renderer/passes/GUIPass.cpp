@@ -164,7 +164,7 @@ void GUIPass::newFrame(const RenderStats &stats) {
 	ImGui::Checkbox("Depth sort", &m_sceneState->sortEnabled);
 	ImGui::Checkbox("Cull floaters", &m_sceneState->cullLargeSplats);
 	if (m_sceneState->cullLargeSplats)
-		ImGui::SliderFloat("Max splat size", &m_sceneState->maxSplatFraction, 0.02f, 0.5f, "%.2f");
+		ImGui::SliderFloat("Max splat size", &m_sceneState->maxSplatFraction, 0.02f, 1.0f, "%.2f");
 
 	ImGui::Spacing();
 	ImGui::Separator();
