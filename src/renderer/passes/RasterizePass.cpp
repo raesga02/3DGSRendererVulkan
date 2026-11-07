@@ -2,6 +2,7 @@
 
 #include "app/IPresentation.hpp"
 #include "core/Device.hpp"
+#include "renderer/Foveation.hpp"
 #include "renderer/RenderContext.hpp"
 #include "renderer/SceneState.hpp"
 #include "utils/Shader.hpp"
@@ -184,8 +185,13 @@ void RasterizePass::createPipeline(RenderContext &renderCtx) {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_FRAGMENT_SHADING_RATE_STATE_CREATE_INFO_KHR,
 		.fragmentSize = renderCtx.fragmentShadingRateExtent,
 		.combinerOps = { VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR,
-			             VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR },
+			             renderCtx.foveation ? VK_FRAGMENT_SHADING_RATE_COMBINER_OP_REPLACE_KHR
+			                                 : VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR },
 	};
+
+	VkPipelineCreateFlags pipelineFlags = 0;
+	if (renderCtx.foveation)
+		pipelineFlags |= VK_PIPELINE_CREATE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
 
 	VkPipelineRenderingCreateInfo renderingInfo{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
@@ -198,6 +204,7 @@ void RasterizePass::createPipeline(RenderContext &renderCtx) {
 	VkGraphicsPipelineCreateInfo pipelineInfo{
 		.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
 		.pNext = &renderingInfo,
+		.flags = pipelineFlags,
 		.stageCount = 2,
 		.pStages = stages,
 		.pVertexInputState = &vertexInput,
@@ -275,8 +282,25 @@ void RasterizePass::record(RenderContext &renderCtx, const PassContext &passCtx)
 		.clearValue = { .color = { { 0.0f, 0.0f, 0.0f, 0.0f } } },
 	};
 
+	VkRenderingFragmentShadingRateAttachmentInfoKHR shadingRateAttachment{
+		.sType = VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_INFO_KHR,
+		.imageView = VK_NULL_HANDLE,
+		.imageLayout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR,
+		.shadingRateAttachmentTexelSize = { 1, 1 },
+	};
+
+	const bool useFoveation =
+	    renderCtx.foveationImages && renderCtx.foveationImages->valid() && passCtx.viewIndex < 2 &&
+	    passCtx.renderArea.offset.x == 0 && passCtx.renderArea.offset.y == 0;
+	if (useFoveation) {
+		shadingRateAttachment.imageView = renderCtx.foveationImages->view(passCtx.viewIndex);
+		shadingRateAttachment.imageLayout = renderCtx.foveationImages->layout();
+		shadingRateAttachment.shadingRateAttachmentTexelSize = renderCtx.foveationImages->texelSize();
+	}
+
 	VkRenderingInfo renderingInfo{
 		.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+		.pNext = useFoveation ? &shadingRateAttachment : nullptr,
 		.renderArea = passCtx.renderArea,
 		.layerCount = 1,
 		.colorAttachmentCount = 1,

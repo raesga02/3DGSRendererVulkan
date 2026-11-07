@@ -12,6 +12,7 @@
 #   ./scripts/run-vr.sh counter --min-opacity 0.02
 #   ./scripts/run-vr.sh counter --max-distance 1.5
 #   ./scripts/run-vr.sh room --vr-shading-rate 2
+#   ./scripts/run-vr.sh room --vr-foveation 2
 #   ./scripts/run-vr.sh room --nosort
 #   ./scripts/run-vr.sh counter --frames 120
 #

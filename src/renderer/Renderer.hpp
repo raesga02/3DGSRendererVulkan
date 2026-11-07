@@ -6,6 +6,7 @@
 #include "TileRasterizer.hpp"
 #include "app/CameraController.hpp"
 #include "gpu/Buffer.hpp"
+#include "renderer/Foveation.hpp"
 #include "renderer/GpuProfiler.hpp"
 #include "renderer/passes/BackgroundPass.hpp"
 #include "renderer/passes/GUIPass.hpp"
@@ -17,6 +18,7 @@
 #include <array>
 #include <chrono>
 #include <glm/glm.hpp>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -71,6 +73,11 @@ class Renderer {
 	// effect when the device supports VK_KHR_fragment_shading_rate.
 	void setShadingRate(uint32_t rate) {
 		m_shadingRate = rate;
+	}
+
+	// Fixed foveation: peripheral rate 0 = off, 2 = 2x2, 4 = 2x2/4x4 rings.
+	void setFoveation(uint32_t rate) {
+		m_foveationRate = rate;
 	}
 
 	SceneState &getSceneState() {
@@ -154,6 +161,8 @@ class Renderer {
 	float m_worldScale = 1.0f;
 	uint32_t m_screenshotEye = 0;
 	uint32_t m_shadingRate = 1;
+	uint32_t m_foveationRate = 0;
+	std::unique_ptr<Foveation> m_foveation;
 };
 
 }        // namespace renderer

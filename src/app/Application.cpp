@@ -66,6 +66,9 @@ void Application::run(int argc, char **argv) {
 		} else if (arg == "--vr-shading-rate" && i + 1 < argc) {
 			const int rate = std::atoi(argv[++i]);
 			m_shadingRate = (rate == 2 || rate == 4) ? static_cast<uint32_t>(rate) : 1;
+		} else if (arg == "--vr-foveation" && i + 1 < argc) {
+			const int rate = std::atoi(argv[++i]);
+			m_foveationRate = (rate == 2 || rate == 4) ? static_cast<uint32_t>(rate) : 0;
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
@@ -81,6 +84,7 @@ void Application::run(int argc, char **argv) {
 	}
 
 	m_renderer.setShadingRate(m_shadingRate);
+	m_renderer.setFoveation(m_foveationRate);
 	init(initialScene);
 	m_presentation.setStereoTest(m_stereoTest);
 	applyRendererOverrides();
@@ -239,6 +243,7 @@ void Application::runVr(const std::string &initialScene) {
 	// No window/GUI in VR; keep the instanced rasterizer (the tile path is
 	// single-view for now).
 	m_renderer.setShadingRate(m_shadingRate);
+	m_renderer.setFoveation(m_foveationRate);
 	m_renderer.init(m_device, m_allocator, nullptr, *m_xrPresentation, nullptr, initialScene);
 	m_renderer.getSceneState().showGUI = false;
 	m_renderer.getSceneState().renderMode = renderer::RenderMode::Instanced;

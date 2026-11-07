@@ -24,6 +24,8 @@ uint64_t formatBytes(VkFormat format) {
 			return 4;
 		case VK_FORMAT_R16_SFLOAT:
 			return 2;
+		case VK_FORMAT_R8_UINT:
+			return 1;
 		default:
 			return 4;
 	}

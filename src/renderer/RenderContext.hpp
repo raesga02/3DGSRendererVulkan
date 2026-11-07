@@ -14,6 +14,7 @@ namespace renderer {
 
 struct SceneState;
 class GpuProfiler;
+class Foveation;
 
 // Shared, read-only-ish services + target description handed to every pass.
 struct RenderContext {
@@ -31,6 +32,11 @@ struct RenderContext {
 	// it; a fragmentSize of {1,1} disables the pipeline VRS state.
 	bool fragmentShadingRate = false;
 	VkExtent2D fragmentShadingRateExtent{ 1, 1 };
+
+	// Fixed foveation: rate maps are created lazily once the eye projections
+	// are known, then reused for the session.
+	bool foveation = false;
+	Foveation *foveationImages = nullptr;
 };
 
 }        // namespace renderer

@@ -38,12 +38,21 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 		.sceneState = &m_sceneState,
 	};
 
-	m_renderContext.fragmentShadingRate = device.fragmentShadingRateSupported() && m_shadingRate > 1;
+	if (m_foveationRate > 1 && !device.fragmentShadingRateSupported()) {
+		utils::logWarn("Fixed foveation requested but VK_KHR_fragment_shading_rate is unsupported");
+		m_foveationRate = 0;
+	}
+	const bool foveation = m_foveationRate > 1;
+	if (foveation)
+		m_shadingRate = 1;        // foveation supplies the per-fragment rate
+
+	m_renderContext.foveation = foveation;
+	m_renderContext.fragmentShadingRate = device.fragmentShadingRateSupported() && (m_shadingRate > 1 || foveation);
 	m_renderContext.fragmentShadingRateExtent = { m_shadingRate, m_shadingRate };
-	const char *vrsState = m_renderContext.fragmentShadingRate ? "enabled"
-	                      : device.fragmentShadingRateSupported() ? "off"
-	                                                               : "unsupported";
-	utils::logInfo("Uniform fragment shading rate: {}x{} ({})", m_shadingRate, m_shadingRate, vrsState);
+
+	const char *vrsState = m_renderContext.fragmentShadingRate ? (foveation ? "fixed foveation" : "uniform") : "off";
+	utils::logInfo("Fragment shading rate: {} (uniform {}x{}, foveation {})", vrsState,
+	               m_shadingRate, m_shadingRate, foveation ? m_foveationRate : 0);
 
 	m_profiler.init(device, MAX_FRAMES_IN_FLIGHT, GpuSlot::Count);
 	m_renderContext.profiler = &m_profiler;
@@ -107,6 +116,11 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 
 void Renderer::shutdown() {
 	vkDeviceWaitIdle(m_device->get());
+
+	if (m_foveation) {
+		m_foveation->shutdown();
+		m_foveation.reset();
+	}
 
 	for (auto &frameBuffers : m_cameraBuffers)
 		for (auto &buffer : frameBuffers)
@@ -462,6 +476,24 @@ void Renderer::drawFrame() {
 		for (size_t i = 0; i < m_gpuMs.size() && i < GpuSlot::Count; ++i)
 			m_profileSums[i] += m_gpuMs[i];
 		++m_profileFrames;
+	}
+
+	if (m_renderContext.foveation && !m_foveation && frame.viewCount > 0) {
+		try {
+			const glm::mat4 leftProjection =
+			    frame.viewCameras[0].valid ? frame.viewCameras[0].projection : m_camera.getProjection();
+			const glm::mat4 rightProjection =
+			    (frame.viewCount > 1 && frame.viewCameras[1].valid) ? frame.viewCameras[1].projection : leftProjection;
+			m_foveation = std::make_unique<Foveation>();
+			m_foveation->init(*m_device, *m_allocator, frame.targets[0].extent,
+			                  leftProjection, rightProjection, m_foveationRate);
+			m_renderContext.foveationImages = m_foveation.get();
+		} catch (const std::exception &e) {
+			utils::logWarn("Fixed foveation unavailable: {}", e.what());
+			m_renderContext.foveation = false;
+			m_renderContext.foveationImages = nullptr;
+			m_foveationRate = 0;
+		}
 	}
 
 	if (m_scene.isLoaded())
