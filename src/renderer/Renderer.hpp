@@ -43,7 +43,7 @@ namespace renderer {
 // presentation layer hands it, so the same renderer serves desktop and XR.
 class Renderer {
   public:
-	void init(core::Device &device, gpu::Allocator &allocator, core::VulkanContext &context, app::IPresentation &presentation, GLFWwindow *window, const std::string &initialScene = "");
+	void init(core::Device &device, gpu::Allocator &allocator, core::VulkanContext *context, app::IPresentation &presentation, GLFWwindow *window, const std::string &initialScene = "");
 	void shutdown();
 
 	void update(const app::InputState &input, float dt);
@@ -101,6 +101,7 @@ class Renderer {
 	SortPass m_sortPass;
 	TileRasterizer m_tileRasterizer;
 	GUIPass m_guiPass;
+	bool m_guiReady = false;
 
 	GpuProfiler m_profiler;
 	std::vector<float> m_gpuMs;
@@ -127,6 +128,7 @@ class Renderer {
 	float m_prevMaxSplat = -1.0f;
 	bool m_prevSortEnabled = true;
 	bool m_warnedTiledMultiView = false;
+	bool m_loggedViewCameras = false;
 };
 
 }        // namespace renderer

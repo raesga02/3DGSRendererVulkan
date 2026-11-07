@@ -42,11 +42,61 @@ if(EXISTS "${IMGUI_DIR}/misc/cpp/imgui_stdlib.cpp")
 endif()
 
 # ---------------------------------------------------------------
+# OpenXR (optional VR presentation path) - detect before the target
+# ---------------------------------------------------------------
+# Preferred: point OPENXR_SDK_ROOT at an OpenXR-SDK-Source checkout that has
+# already been built (headers in build/include, loader in build/src/loader).
+# Falls back to a system OpenXR package if available.
+option(ENABLE_OPENXR "Build the OpenXR (VR) presentation path" ON)
+
+set(OPENXR_ENABLED FALSE)
+set(OPENXR_SYSTEM_PACKAGE FALSE)
+
+if(ENABLE_OPENXR)
+    set(OPENXR_SDK_ROOT "" CACHE PATH "OpenXR-SDK-Source root (with built loader)")
+
+    if(NOT OPENXR_SDK_ROOT AND EXISTS "$ENV{HOME}/Develop/TDT16_XR/openxr-sdk/build/include/openxr/openxr.h")
+        set(OPENXR_SDK_ROOT "$ENV{HOME}/Develop/TDT16_XR/openxr-sdk" CACHE PATH "OpenXR-SDK-Source root (with built loader)" FORCE)
+    endif()
+
+    if(OPENXR_SDK_ROOT AND EXISTS "${OPENXR_SDK_ROOT}/build/include/openxr/openxr.h")
+        set(OPENXR_INCLUDE_DIR "${OPENXR_SDK_ROOT}/build/include")
+        find_library(OPENXR_LOADER_LIBRARY NAMES openxr_loader
+            HINTS
+                "${OPENXR_SDK_ROOT}/build/src/loader"
+                "${OPENXR_SDK_ROOT}/build/loader"
+        )
+        if(OPENXR_LOADER_LIBRARY)
+            set(OPENXR_ENABLED TRUE)
+            get_filename_component(OPENXR_LOADER_DIR "${OPENXR_LOADER_LIBRARY}" DIRECTORY)
+            message(STATUS "OpenXR enabled: ${OPENXR_INCLUDE_DIR} / ${OPENXR_LOADER_LIBRARY}")
+        else()
+            message(WARNING "OpenXR SDK headers found at ${OPENXR_INCLUDE_DIR} but openxr_loader was not found; VR disabled")
+        endif()
+    endif()
+
+    if(NOT OPENXR_ENABLED)
+        find_package(OpenXR QUIET)
+        if(OpenXR_FOUND AND TARGET OpenXR::openxr_loader)
+            set(OPENXR_ENABLED TRUE)
+            set(OPENXR_SYSTEM_PACKAGE TRUE)
+            message(STATUS "OpenXR enabled (system package)")
+        else()
+            message(STATUS "OpenXR not found; building without the VR presentation path")
+        endif()
+    endif()
+endif()
+
+# ---------------------------------------------------------------
 # Application target
 # ---------------------------------------------------------------
 file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/src/*.cpp"
 )
+
+if(NOT OPENXR_ENABLED)
+    list(FILTER PROJECT_SOURCES EXCLUDE REGEX "/src/xr/")
+endif()
 
 add_executable(${PROJECT_NAME}
     ${PROJECT_SOURCES}
@@ -69,6 +119,20 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     glm
     fmt::fmt
 )
+
+if(OPENXR_ENABLED)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE HAS_OPENXR)
+    if(OPENXR_SYSTEM_PACKAGE)
+        target_link_libraries(${PROJECT_NAME} PRIVATE OpenXR::openxr_loader)
+    else()
+        target_include_directories(${PROJECT_NAME} PRIVATE "${OPENXR_INCLUDE_DIR}")
+        target_link_libraries(${PROJECT_NAME} PRIVATE "${OPENXR_LOADER_LIBRARY}")
+        set_target_properties(${PROJECT_NAME} PROPERTIES
+            BUILD_RPATH "${OPENXR_LOADER_DIR}"
+            INSTALL_RPATH "${OPENXR_LOADER_DIR}"
+        )
+    endif()
+endif()
 
 # ---------------------------------------------------------------
 # Shader compilation (glslangValidator from the Vulkan SDK)

@@ -218,6 +218,37 @@ cmake --build build -j"$(nproc)"
 
 See the **Controls** table above. Pass a scene path to load a specific `.ply`.
 
+### VR (OpenXR / WiVRn)
+
+The renderer can drive an OpenXR runtime directly. This has been tested with
+**WiVRn** (PCVR streaming to a Meta Quest 3), but any Vulkan OpenXR runtime
+should work.
+
+Build prerequisites:
+
+- OpenXR-SDK-Source built with the loader (headers in `build/include`, loader
+  in `build/src/loader`), or a system OpenXR package.
+- If the SDK is not at the default discoverable location, configure with
+  `-DOPENXR_SDK_ROOT=/path/to/openxr-sdk`. `-DENABLE_OPENXR=OFF` builds the
+  desktop-only renderer.
+
+Run:
+
+```bash
+flatpak run --user --command=wivrn-server io.github.wivrn.wivrn   # if needed
+./scripts/run-vr.sh room
+```
+
+- The first argument is the scene; remaining flags are passed to the renderer
+  (for example `--nosort`, `--frames 120`, `--screenshot`).
+- The runtime manifest is taken from the WiVRn Flatpak. Override with
+  `XR_RUNTIME_JSON=<manifest>`.
+- Per-eye resolution starts at 50% of the runtime's recommendation. There is
+  no in-VR GUI yet; head tracking is active and the base viewpoint is the
+  scene's initial camera. Locomotion is the next milestone.
+- `--screenshot` writes the left eye to `build/saves/screenshot_*.png`.
+- Stop with `Ctrl+C` or by ending the streaming session in the headset.
+
 ---
 
 ## Datasets

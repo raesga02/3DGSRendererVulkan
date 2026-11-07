@@ -22,7 +22,7 @@
 
 namespace renderer {
 
-void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::VulkanContext &context, app::IPresentation &presentation, GLFWwindow *window, const std::string &initialScene) {
+void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::VulkanContext *context, app::IPresentation &presentation, GLFWwindow *window, const std::string &initialScene) {
 	m_device = &device;
 	m_allocator = &allocator;
 	m_presentation = &presentation;
@@ -52,7 +52,13 @@ void Renderer::init(core::Device &device, gpu::Allocator &allocator, core::Vulka
 		.extent = presentation.extent(),
 		.imageCount = presentation.imageCount(),
 	};
-	m_guiPass.initVulkan(window, context, device, allocator, swapchainInfo, m_sceneState);
+	if (window && context) {
+		m_guiPass.initVulkan(window, *context, device, allocator, swapchainInfo, m_sceneState);
+		m_guiReady = true;
+	} else {
+		// VR has no window/GUI yet.
+		m_sceneState.showGUI = false;
+	}
 
 	createFrameBuffers();
 	scanScenes();
@@ -91,7 +97,8 @@ void Renderer::shutdown() {
 
 	m_sortPass.shutdown(m_renderContext);
 	m_tileRasterizer.shutdown();
-	m_guiPass.shutdown(m_renderContext);
+	if (m_guiReady)
+		m_guiPass.shutdown(m_renderContext);
 	m_rasterizePass.shutdown(m_renderContext);
 	m_backgroundPass.shutdown(m_renderContext);
 
@@ -245,7 +252,10 @@ void Renderer::updateSortDirty() {
 	}
 
 	glm::mat4 view = m_camera.getView();
-	bool changed = m_sceneState.forceSort || !m_hasSortView || view != m_lastSortView ||
+	// OpenXR supplies per-frame eye poses that are not part of m_camera; the
+	// sort (built from view 0) must follow the head every frame.
+	const bool externalViews = m_presentation->providesViewCameras();
+	bool changed = externalViews || m_sceneState.forceSort || !m_hasSortView || view != m_lastSortView ||
 	               static_cast<int>(m_sceneState.renderMode) != m_prevRenderMode ||
 	               m_sceneState.shDegree != m_prevShDegree ||
 	               m_sceneState.splatScale != m_prevSplatScale ||
@@ -278,9 +288,9 @@ void Renderer::updateCameraBuffers(const app::PresentFrame &frame) {
 	                             : 1.0f;
 
 	// Camera-space right axis from the base view matrix, used to offset the
-	// synthetic stereo test eyes. Real XR eye poses arrive through the
-	// presentation layer in the next milestone.
+	// synthetic desktop stereo test eyes. XR supplies real eye poses instead.
 	const glm::mat4 &baseView = m_camera.getView();
+	const glm::mat4 baseWorld = glm::inverse(baseView);
 	glm::vec3 right{
 		baseView[0][0],
 		baseView[1][0],
@@ -296,7 +306,43 @@ void Renderer::updateCameraBuffers(const app::PresentFrame &frame) {
 		                             : fullAspect;
 
 		scene::Camera camera = m_camera;
-		if (frame.viewCount > 1) {
+		const app::PresentViewCamera &presented = frame.viewCameras[v];
+
+		if (presented.valid) {
+			// Compose the runtime's eye pose with the renderer's base camera
+			// frame, so the head pose is world-space while locomotion stays here.
+			camera.setViewMatrix(presented.localView * baseView);
+			camera.setProjectionMatrix(presented.projection);
+			camera.setPosition(glm::vec3(baseWorld * glm::vec4(presented.localPosition, 1.0f)));
+
+			if (v == 0 && !m_loggedViewCameras) {
+				const glm::vec3 &local = presented.localPosition;
+				const glm::vec3 &base = m_camera.getPosition();
+				const glm::vec3 &eye = camera.getPosition();
+				const glm::mat4 &projection = presented.projection;
+				auto forwardOf = [](const glm::mat4 &m) {
+					return -glm::normalize(glm::vec3(m[0][2], m[1][2], m[2][2]));
+				};
+				const glm::vec3 baseForward = forwardOf(baseView);
+				const glm::vec3 localForward = forwardOf(presented.localView);
+				const glm::vec3 eyeForward = forwardOf(camera.getView());
+				utils::logInfo("XR view0: basePos ({:.2f}, {:.2f}, {:.2f}) baseFwd ({:.2f}, {:.2f}, {:.2f})", base.x, base.y, base.z, baseForward.x, baseForward.y, baseForward.z);
+				utils::logInfo("XR view0: localPos ({:.2f}, {:.2f}, {:.2f}) localFwd ({:.2f}, {:.2f}, {:.2f})", local.x, local.y, local.z, localForward.x, localForward.y, localForward.z);
+				utils::logInfo("XR view0: eyePos ({:.2f}, {:.2f}, {:.2f}) eyeFwd ({:.2f}, {:.2f}, {:.2f})", eye.x, eye.y, eye.z, eyeForward.x, eyeForward.y, eyeForward.z);
+				utils::logInfo("XR view0: proj00 {:.3f} proj11 {:.3f} proj20 {:.3f} proj21 {:.3f} proj22 {:.3f} proj23 {:.3f}",
+				               projection[0][0], projection[1][1], projection[2][0], projection[2][1],
+				               projection[2][2], projection[2][3]);
+
+				const io::SceneMetadata &meta = m_scene.getMetadata();
+				const glm::vec4 centerView = camera.getView() * glm::vec4(meta.center, 1.0f);
+				const glm::vec4 centerClip = camera.getProjection() * centerView;
+				const glm::vec3 centerNdc = glm::vec3(centerClip) / centerClip.w;
+				utils::logInfo("XR view0: scene center ({:.2f}, {:.2f}, {:.2f}) viewZ {:.2f} w {:.2f} ndc ({:.3f}, {:.3f}, {:.3f})",
+				               meta.center.x, meta.center.y, meta.center.z, centerView.z, centerClip.w,
+				               centerNdc.x, centerNdc.y, centerNdc.z);
+				m_loggedViewCameras = true;
+			}
+		} else if (frame.viewCount > 1) {
 			const float eyeOffset = (v == 0 ? -0.5f : 0.5f) * kEyeSeparation;
 			const glm::vec3 worldOffset = right * eyeOffset;
 			camera.setViewMatrix(baseView * glm::translate(glm::mat4(1.0f), -worldOffset));
@@ -333,7 +379,7 @@ void Renderer::updateCameraBuffers(const app::PresentFrame &frame) {
 void Renderer::drawFrame() {
 	updateSortDirty();
 
-	if (m_sceneState.showGUI)
+	if (m_sceneState.showGUI && m_guiReady)
 		m_guiPass.newFrame(m_stats);
 
 	app::PresentFrame frame;
@@ -504,7 +550,7 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 			m_profiler.write(frame.cmd, frame.frameIndex, GpuSlot::Raster);
 	}
 
-	if (m_sceneState.showGUI) {
+	if (m_sceneState.showGUI && m_guiReady) {
 		PassContext guiCtx = baseCtx;
 		guiCtx.targetImage = frame.targets[0].image;
 		guiCtx.targetView = frame.targets[0].view;
@@ -539,15 +585,31 @@ void Renderer::recordFrame(const app::PresentFrame &frame) {
 
 		utils::vk::transitionImage(
 		    frame.cmd, targetImage,
-		    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frame.targets[0].finalLayout,
 		    VK_ACCESS_TRANSFER_READ_BIT, 0,
 		    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 	} else {
-		utils::vk::transitionImage(
-		    frame.cmd, targetImage,
-		    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-		    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
-		    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+		// Each distinct target image (one per eye in XR) goes to the layout its
+		// presentation expects. Desktop presents; XR hands back colour attachments.
+		for (uint32_t v = 0; v < frame.viewCount; ++v) {
+			bool firstUse = true;
+			for (uint32_t p = 0; p < v; ++p) {
+				if (frame.targets[p].image == frame.targets[v].image) {
+					firstUse = false;
+					break;
+				}
+			}
+			if (!firstUse)
+				continue;
+			if (frame.targets[v].finalLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+				continue;
+
+			utils::vk::transitionImage(
+			    frame.cmd, frame.targets[v].image,
+			    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, frame.targets[v].finalLayout,
+			    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
+			    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+		}
 	}
 
 	if (m_profiler.valid())
@@ -581,11 +643,11 @@ void Renderer::updateStats() {
 }
 
 bool Renderer::wantsCaptureMouse() const {
-	return m_guiPass.wantsCaptureMouse();
+	return m_guiReady && m_guiPass.wantsCaptureMouse();
 }
 
 bool Renderer::wantsCaptureKeyboard() const {
-	return m_guiPass.wantsCaptureKeyboard();
+	return m_guiReady && m_guiPass.wantsCaptureKeyboard();
 }
 
 }        // namespace renderer

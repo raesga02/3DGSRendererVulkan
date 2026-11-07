@@ -34,6 +34,7 @@ void Device::init(VulkanContext &context) {
 
 	m_vkbDevice = dev_ret.value();
 	m_device = m_vkbDevice.device;
+	m_ownsDevice = true;
 
 	// Graphics queue.
 	auto graphics_queue_ret = m_vkbDevice.get_queue(vkb::QueueType::graphics);
@@ -52,6 +53,21 @@ void Device::init(VulkanContext &context) {
 		throw std::runtime_error("Failed to get present queue");
 	m_presentQueue = present_queue_ret.value();
 
+	createTransientPool();
+}
+
+void Device::initFromHandles(VkPhysicalDevice physicalDevice, VkDevice device, VkQueue graphicsQueue, uint32_t graphicsQueueIndex) {
+	m_physicalDevice = physicalDevice;
+	m_device = device;
+	m_graphicsQueue = graphicsQueue;
+	m_graphicsQueueIndex = graphicsQueueIndex;
+	m_presentQueue = graphicsQueue;
+	m_ownsDevice = false;
+
+	createTransientPool();
+}
+
+void Device::createTransientPool() {
 	// Transient command pool for one-time command buffers.
 	VkCommandPoolCreateInfo poolInfo{
 		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -69,8 +85,14 @@ void Device::shutdown() {
 
 	if (m_transientCommandPool)
 		vkDestroyCommandPool(m_device, m_transientCommandPool, nullptr);
+	m_transientCommandPool = VK_NULL_HANDLE;
 
-	vkb::destroy_device(m_vkbDevice);
+	if (m_ownsDevice)
+		vkb::destroy_device(m_vkbDevice);
+
+	m_device = VK_NULL_HANDLE;
+	m_physicalDevice = VK_NULL_HANDLE;
+	m_ownsDevice = false;
 }
 
 VkCommandBuffer Device::beginSingleTimeCommands() {

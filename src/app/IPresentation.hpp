@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 namespace app {
@@ -14,8 +15,19 @@ inline constexpr uint32_t kMaxFramesInFlight = 2;
 // uses one per eye. Kept small so per-view resources can live in arrays.
 inline constexpr uint32_t kMaxViews = 2;
 
+// Optional per-view camera supplied by the presentation layer (OpenXR). The
+// matrices are relative to the renderer's base camera frame: the presentation
+// reports the eye pose in its own reference space, and the renderer composes it
+// with the scene camera so locomotion stays in the renderer.
+struct PresentViewCamera {
+	bool valid = false;
+	glm::mat4 localView{ 1.0f };        // reference space -> eye (inverse eye pose)
+	glm::mat4 projection{ 1.0f };       // eye projection (asymmetric for XR)
+	glm::vec3 localPosition{ 0.0f };    // eye position in reference space
+};
+
 // A colour target the renderer can draw into for one frame. For desktop this
-// is a swapchain image; for OpenXR (Phase 4) it will be a per-eye image.
+// is a swapchain image; for OpenXR it is a per-eye image.
 //
 // `renderArea` is the sub-rectangle of the target this view fills. It is the
 // whole image for XR (one image per eye) and half the window for the desktop
@@ -29,6 +41,9 @@ struct PresentTarget {
 	VkFormat format = VK_FORMAT_UNDEFINED;
 	VkRect2D renderArea{};
 	bool clear = true;
+	// Layout the renderer leaves the image in. Desktop presents the swapchain;
+	// OpenXR hands the image back to the runtime in colour-attachment layout.
+	VkImageLayout finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 };
 
 // Per-in-flight-frame recording state handed to the renderer.
@@ -37,6 +52,7 @@ struct PresentFrame {
 	VkCommandBuffer cmd = VK_NULL_HANDLE;
 	uint32_t viewCount = 0;
 	std::array<PresentTarget, kMaxViews> targets{};
+	std::array<PresentViewCamera, kMaxViews> viewCameras{};
 };
 
 // Presentation owns "where pixels go". The renderer only ever talks to this
@@ -53,6 +69,12 @@ class IPresentation {
 	virtual VkExtent2D extent() const = 0;
 	virtual VkFormat colorFormat() const = 0;
 	virtual uint32_t imageCount() const = 0;
+
+	// True when beginFrame supplies per-view cameras (OpenXR). The renderer then
+	// uses those instead of deriving views from its own camera.
+	virtual bool providesViewCameras() const {
+		return false;
+	}
 };
 
 }        // namespace app

@@ -3,9 +3,20 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include <cstdlib>
+#include <csignal>
 #include <stdexcept>
+#include <thread>
 
 namespace app {
+
+namespace {
+volatile std::sig_atomic_t g_vrInterrupted = 0;
+
+void vrSignalHandler(int) {
+	g_vrInterrupted = 1;
+}
+}        // namespace
 
 namespace {
 float g_scrollDelta = 0.0f;
@@ -31,10 +42,24 @@ void Application::run(int argc, char **argv) {
 			m_noIdle = true;
 		} else if (arg == "--stereo-test") {
 			m_stereoTest = true;
+		} else if (arg == "--vr") {
+			m_vrMode = true;
+		} else if (arg == "--frames" && i + 1 < argc) {
+			m_maxVrFrames = std::atoi(argv[++i]);
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
 	}
+
+	if (m_vrMode) {
+#ifndef HAS_OPENXR
+		throw std::runtime_error("--vr requires a build with OpenXR support (see ENABLE_OPENXR/OPENXR_SDK_ROOT)");
+#else
+		runVr(initialScene);
+		return;
+#endif
+	}
+
 	init(initialScene);
 	m_presentation.setStereoTest(m_stereoTest);
 	if (m_tiledMode)
@@ -55,7 +80,7 @@ void Application::init(const std::string &initialScene) {
 	m_allocator.init(m_device.getPhysicalDevice(), m_device.get(), m_context.getInstance());
 
 	m_presentation.init(m_device, static_cast<uint32_t>(m_windowWidth), static_cast<uint32_t>(m_windowHeight));
-	m_renderer.init(m_device, m_allocator, m_context, m_presentation, m_window, initialScene);
+	m_renderer.init(m_device, m_allocator, &m_context, m_presentation, m_window, initialScene);
 
 	double mouseX = 0.0, mouseY = 0.0;
 	glfwGetCursorPos(m_window, &mouseX, &mouseY);
@@ -173,6 +198,92 @@ void Application::shutdown() {
 
 	glfwDestroyWindow(m_window);
 	glfwTerminate();
+}
+
+void Application::runVr(const std::string &initialScene) {
+#ifdef HAS_OPENXR
+	m_xrContext = std::make_unique<xr::XrContext>();
+	m_xrContext->init();
+
+	m_device.initFromHandles(m_xrContext->physicalDevice(), m_xrContext->device(),
+	                         m_xrContext->queue(), m_xrContext->queueFamilyIndex());
+	m_allocator.init(m_xrContext->physicalDevice(), m_xrContext->device(),
+	                 m_xrContext->vulkanInstance());
+
+	m_xrPresentation = std::make_unique<xr::XrPresentation>();
+	m_xrPresentation->init(m_device, *m_xrContext);
+
+	// No window/GUI in VR; keep the instanced rasterizer (the tile path is
+	// single-view for now).
+	m_renderer.init(m_device, m_allocator, nullptr, *m_xrPresentation, nullptr, initialScene);
+	m_renderer.getSceneState().showGUI = false;
+	m_renderer.getSceneState().renderMode = renderer::RenderMode::Instanced;
+	if (m_noSort)
+		m_renderer.getSceneState().sortEnabled = false;
+
+	m_lastFrameTime = std::chrono::steady_clock::now();
+
+	g_vrInterrupted = 0;
+	std::signal(SIGINT, vrSignalHandler);
+	std::signal(SIGTERM, vrSignalHandler);
+
+	int renderedFrames = 0;
+	while (m_xrContext->pollEvents()) {
+		if (g_vrInterrupted || m_xrContext->quitRequested())
+			break;
+
+		if (!m_xrContext->sessionRunning()) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			continue;
+		}
+
+		const auto now = std::chrono::steady_clock::now();
+		const float dt = std::chrono::duration<float>(now - m_lastFrameTime).count();
+		m_lastFrameTime = now;
+
+		InputState input;
+		m_renderer.update(input, dt);
+		m_renderer.drawFrame();
+
+		++renderedFrames;
+		if (m_screenshotMode) {
+			if (renderedFrames == 3)
+				m_renderer.getSceneState().screenshotRequested = true;
+			if (renderedFrames >= 6)
+				break;
+		}
+
+		if (m_maxVrFrames > 0 && renderedFrames >= m_maxVrFrames)
+			break;
+	}
+
+	if (renderedFrames > 0)
+		m_renderer.logGpuTimings();
+
+	std::signal(SIGINT, SIG_DFL);
+	std::signal(SIGTERM, SIG_DFL);
+
+	shutdownVr();
+#else
+	(void) initialScene;
+	throw std::runtime_error("--vr requires a build with OpenXR support");
+#endif
+}
+
+void Application::shutdownVr() {
+#ifdef HAS_OPENXR
+	m_renderer.shutdown();
+	if (m_xrPresentation) {
+		m_xrPresentation->shutdown();
+		m_xrPresentation.reset();
+	}
+	m_allocator.shutdown();
+	m_device.shutdown();        // releases the transient pool; the device belongs to XrContext
+	if (m_xrContext) {
+		m_xrContext->shutdown();
+		m_xrContext.reset();
+	}
+#endif
 }
 
 }        // namespace app

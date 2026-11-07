@@ -13,6 +13,9 @@ class VulkanContext;
 class Device {
   public:
 	void init(VulkanContext &context);
+	// Adopt an already-created device (used by the OpenXR path, where the
+	// runtime picks the physical device and creates the VkDevice).
+	void initFromHandles(VkPhysicalDevice physicalDevice, VkDevice device, VkQueue graphicsQueue, uint32_t graphicsQueueIndex);
 	void shutdown();
 
 	VkCommandBuffer beginSingleTimeCommands();
@@ -40,8 +43,12 @@ class Device {
 	}
 
   private:
+	void createTransientPool();
+
+  private:
 	VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
 	VkDevice m_device = VK_NULL_HANDLE;
+	bool m_ownsDevice = false;
 
 	VkCommandPool m_transientCommandPool = VK_NULL_HANDLE;
 

@@ -7,6 +7,12 @@
 #include "gpu/Allocator.hpp"
 #include "renderer/Renderer.hpp"
 
+#ifdef HAS_OPENXR
+#include "xr/XrContext.hpp"
+#include "xr/XrPresentation.hpp"
+#include <memory>
+#endif
+
 #include <chrono>
 #include <string>
 
@@ -24,7 +30,9 @@ class Application {
 	void initWindow();
 	void mainLoop();
 	void updateInput();
+	void runVr(const std::string &initialScene);
 	void shutdown();
+	void shutdownVr();
 
   private:
 	int m_windowWidth = 1600;
@@ -40,6 +48,8 @@ class Application {
 	bool m_noSort = false;
 	bool m_noIdle = false;
 	bool m_stereoTest = false;
+	bool m_vrMode = false;
+	int m_maxVrFrames = -1;
 
   private:
 	GLFWwindow *m_window = nullptr;
@@ -49,6 +59,11 @@ class Application {
 	gpu::Allocator m_allocator;
 	DesktopPresentation m_presentation;
 	renderer::Renderer m_renderer;
+
+#ifdef HAS_OPENXR
+	std::unique_ptr<xr::XrContext> m_xrContext;
+	std::unique_ptr<xr::XrPresentation> m_xrPresentation;
+#endif
 
 	InputState m_inputState;
 	double m_lastMouseX = 0.0;
