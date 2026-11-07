@@ -67,7 +67,7 @@ class XrPresentation : public app::IPresentation {
 	std::array<XrSwapchain, XrContext::kViewCount> m_eyes;
 	VkExtent2D m_extent{};
 	VkFormat m_format = VK_FORMAT_UNDEFINED;
-	float m_resolutionScale = 0.5f;
+	float m_resolutionScale = 0.75f;
 
 	std::array<FrameData, kMaxFrames> m_frames{};
 	uint32_t m_frameCounter = 0;

@@ -83,6 +83,7 @@ void Application::run(int argc, char **argv) {
 			m_vrRefreshRate = std::atoi(argv[++i]);
 		} else if (arg == "--vr-resolution-scale" && i + 1 < argc) {
 			m_vrResolutionScale = std::strtof(argv[++i], nullptr);
+			m_vrResolutionScaleSet = true;
 		} else if (initialScene.empty()) {
 			initialScene = arg;
 		}
@@ -260,7 +261,12 @@ void Application::runVr(const std::string &initialScene) {
 	                 m_xrContext->vulkanInstance());
 
 	m_xrPresentation = std::make_unique<xr::XrPresentation>();
-	m_xrPresentation->setResolutionScale(m_vrResolutionScale);
+	// 0.75x is the sharp default when foveation is on; without foveation keep the
+	// cheaper 0.5x scale. An explicit --vr-resolution-scale always wins.
+	float resolutionScale = m_vrResolutionScale;
+	if (!m_vrResolutionScaleSet)
+		resolutionScale = m_foveationRate > 1 ? 0.75f : 0.5f;
+	m_xrPresentation->setResolutionScale(resolutionScale);
 	m_xrPresentation->init(m_device, *m_xrContext);
 
 	// No window/GUI in VR; keep the instanced rasterizer (the tile path is

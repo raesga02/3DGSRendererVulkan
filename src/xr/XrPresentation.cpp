@@ -17,8 +17,9 @@ namespace xr {
 namespace {
 
 // The runtime recommends a very high per-eye resolution. The presentation
-// starts at a reduced scale (0.5) so the first room-scale test is comfortably
-// interactive; Application raises it via XrPresentation::setResolutionScale.
+// defaults to 0.75 of it (1856x1944 from 2476x2594 on the Quest runtime) so the
+// image is noticeably sharper than the old 0.5 scale while staying interactive;
+// Application overrides this via XrPresentation::setResolutionScale.
 
 glm::mat4 localViewFromPose(const XrPosef &pose) {
 	glm::quat orientation(pose.orientation.w, pose.orientation.x, pose.orientation.y, pose.orientation.z);

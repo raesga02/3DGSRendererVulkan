@@ -238,7 +238,13 @@ Run:
 ```bash
 flatpak run --user --command=wivrn-server io.github.wivrn.wivrn   # if needed
 ./scripts/run-vr.sh room
+./scripts/run-vr.sh room --vr-foveation 4          # recommended quality config
 ```
+
+The recommended VR configuration is `--vr-foveation 4`: fixed foveation with
+the 5x5 post-process blur, **0.75** render scale (1856x1944/eye) and a 72 Hz
+refresh request. Drop to `--vr-resolution-scale 0.5` for a reprojection-free
+72 Hz profile.
 
 - The first argument is the scene; remaining flags are passed to the renderer
   (for example `--nosort`, `--frames 120`, `--screenshot`,
@@ -267,8 +273,9 @@ flatpak run --user --command=wivrn-server io.github.wivrn.wivrn   # if needed
   `--vr-foveation-ring <fraction>` the width of the 2x2 ring (default 0.32).
   At 1238x1296/eye this is roughly a 500 px fovea diameter and a 200 px
   intermediate ring; everything outside is 4x4 for `--vr-foveation 4`.
-  Measured on `room` at the defaults: ~13.7 ms total for `2` and ~12.5 ms for
-  `4`, versus 12.2 ms uniform 2x2 and 21.2 ms baseline.
+  Measured on `room` at the old 0.5 scale: ~13.7 ms total for `2` and ~12.5 ms
+  for `4`, versus 12.2 ms uniform 2x2 and 21.2 ms baseline. At the 0.75 default
+  scale, `4` measures ~20 ms.
 - **Foveation blur:** on by default when foveation is enabled. The scene is
   rendered into per-eye offscreen targets, then a fullscreen pass mixes a 5x5
   Gaussian blur over the sharp sample using a smoothstep mask from
@@ -280,30 +287,32 @@ flatpak run --user --command=wivrn-server io.github.wivrn.wivrn   # if needed
   `2` + blur (12.8 ms without).
 - **Refresh rate:** VR defaults to requesting **72 Hz** when foveation is
   enabled; `--vr-refresh 72|90|0` overrides it (`0` keeps the runtime default).
-  At 72 Hz the 12.5–13.7 ms frames fit the 13.9 ms budget instead of relying
-  on reprojection at 90 Hz.
+  At 72 Hz the budget is 13.9 ms: 0.5/0.55 fit directly, while the 0.75 default
+  (~20 ms) and 1.0 (~29 ms) rely on the runtime's reprojection.
 - **Foveation debug view:** `--vr-foveation-debug` (or right controller **A**)
   tints the splat image by rate-map class — green = 1x1, yellow = 2x2, red =
   4x4 — quantized to the 16x16 rate texels and centred on each eye's optical
   axis. It is drawn after the blur, so the classes stay crisp.
 - **Screenshots:** right controller **B** saves a screenshot to
   `build/saves/screenshot_NNN.png`. By default the PNG is **both eyes
-  side by side** (two per-eye images in one file, e.g. 2476x1296 in VR).
-  `--screenshot` is the one-shot at launch; `--screenshot-eye 0|1` captures a
-  single eye instead. These capture the rendered eye image, not the
+  side by side** (two per-eye images in one file, e.g. 3712x1944 in VR at the
+  0.75 scale). `--screenshot` is the one-shot at launch; `--screenshot-eye 0|1`
+  captures a single eye instead. These capture the rendered eye image, not the
   composited/lens-distorted headset view. For the true headset view, use the
   Quest's system screenshot shortcut (Meta/Oculus button + trigger) and pull
   it with adb from `/sdcard/Oculus/Screenshots` or
   `/sdcard/Pictures/Screenshots`.
 - The runtime manifest is taken from the WiVRn Flatpak. Override with
   `XR_RUNTIME_JSON=<manifest>`.
-- **Render resolution:** per-eye buffers default to **50%** of the runtime's
-  recommendation (1238x1296 from 2476x2594 on the Quest runtime). Raise it with
+- **Render resolution:** per-eye buffers default to **75%** of the runtime's
+  recommendation when foveation is enabled (1856x1944 from 2476x2594 on the
+  Quest runtime, 2.25x the pixels of the old 0.5 scale). Without foveation the
+  default stays at 0.5 (a full-rate 0.75 buffer would be ~35 ms). Override with
   `--vr-resolution-scale <fraction>` (clamped to 0.25–2.0); the runtime
   upsamples/downsamples to the panel. Measured on `room` with foveation 4:
-  0.5 = 12.5 ms, 0.55 = 13.9 ms, 0.6 = 15.1 ms, 0.75 = 19.9 ms, 1.0 = 28.9 ms.
-  The 72 Hz budget is 13.9 ms, so 0.5 is the stable default and 0.55 is right
-  at the limit.
+  0.5 = 12.5 ms, 0.55 = 13.9 ms, 0.6 = 15.1 ms, 0.75 = ~20 ms, 1.0 = 28.9 ms.
+  The 72 Hz budget is 13.9 ms, so 0.5/0.55 are reprojection-free; 0.75/1.0
+  trade frame rate for a sharper image with smaller VRS blocks.
 - There is no in-VR GUI yet; head tracking is active and the base viewpoint is
   the scene's initial camera. Locomotion is the next milestone.
 - Stop with `Ctrl+C` or by ending the streaming session in the headset.
