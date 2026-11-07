@@ -83,9 +83,13 @@ class Renderer {
 	void setFoveationSize(float radius) {
 		m_foveationSize = radius;
 	}
+	void setFoveationRing(float ring) {
+		m_foveationRing = ring;
+	}
 	void setFoveationDebug(bool enabled) {
 		m_foveationDebug = enabled;
 	}
+	void toggleFoveationDebug();
 
 	SceneState &getSceneState() {
 		return m_sceneState;
@@ -171,6 +175,7 @@ class Renderer {
 	uint32_t m_shadingRate = 1;
 	uint32_t m_foveationRate = 0;
 	float m_foveationSize = 0.40f;
+	float m_foveationRing = 0.32f;
 	bool m_foveationDebug = false;
 	std::unique_ptr<Foveation> m_foveation;
 };

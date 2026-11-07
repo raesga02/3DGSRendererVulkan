@@ -27,7 +27,7 @@ class Foveation {
   public:
 	void init(core::Device &device, gpu::Allocator &allocator, VkExtent2D viewExtent,
 	          const glm::mat4 &leftProjection, const glm::mat4 &rightProjection,
-	          uint32_t peripheralRate, float foveaRadius);
+	          uint32_t peripheralRate, float foveaRadius, float ringWidth);
 	void shutdown();
 
 	bool valid() const {

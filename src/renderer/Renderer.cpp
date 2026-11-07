@@ -484,6 +484,8 @@ void Renderer::drawFrame() {
 		++m_profileFrames;
 	}
 
+	m_renderContext.foveationDebug = m_foveationDebug && m_renderContext.foveation;
+
 	if (m_renderContext.foveation && !m_foveation && frame.viewCount > 0) {
 		try {
 			const glm::mat4 leftProjection =
@@ -492,7 +494,7 @@ void Renderer::drawFrame() {
 			    (frame.viewCount > 1 && frame.viewCameras[1].valid) ? frame.viewCameras[1].projection : leftProjection;
 			m_foveation = std::make_unique<Foveation>();
 			m_foveation->init(*m_device, *m_allocator, frame.targets[0].extent,
-			                  leftProjection, rightProjection, m_foveationRate, m_foveationSize);
+			                  leftProjection, rightProjection, m_foveationRate, m_foveationSize, m_foveationRing);
 			m_renderContext.foveationImages = m_foveation.get();
 		} catch (const std::exception &e) {
 			utils::logWarn("Fixed foveation unavailable: {}", e.what());
@@ -513,6 +515,11 @@ void Renderer::drawFrame() {
 		captureScreenshot();
 
 	updateStats();
+}
+
+void Renderer::toggleFoveationDebug() {
+	m_foveationDebug = !m_foveationDebug;
+	utils::logInfo("Foveation debug: {}", m_foveationDebug ? "on" : "off");
 }
 
 void Renderer::logGpuTimings() {

@@ -25,13 +25,15 @@ constexpr uint8_t kRate4x4 = (2u << 2) | 2u;
 
 void Foveation::init(core::Device &device, gpu::Allocator &allocator, VkExtent2D viewExtent,
                      const glm::mat4 &leftProjection, const glm::mat4 &rightProjection,
-                     uint32_t peripheralRate, float foveaRadius) {
+                     uint32_t peripheralRate, float foveaRadius, float ringWidth) {
 	m_device = &device;
 	m_allocator = &allocator;
 	m_viewExtent = viewExtent;
 	m_peripheralRate = peripheralRate;
 	m_foveaRadius = std::clamp(foveaRadius, 0.10f, 0.90f);
-	m_midRadius = std::max(0.85f, m_foveaRadius + 0.20f);
+	// The 2x2 ring spans `ringWidth` (fraction of half the viewport) beyond the
+	// 1x1 fovea; everything outside it is 4x4 for peripheralRate=4.
+	m_midRadius = std::clamp(m_foveaRadius + std::max(0.05f, ringWidth), m_foveaRadius + 0.05f, 2.0f);
 	m_halfExtent = 0.5f * static_cast<float>(std::min(viewExtent.width, viewExtent.height));
 	if (m_halfExtent <= 0.0f)
 		m_halfExtent = 1.0f;

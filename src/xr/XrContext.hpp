@@ -18,11 +18,21 @@ class XrContext {
   public:
 	static constexpr uint32_t kViewCount = 2;
 
+	// Per-frame input from the controller action set. These are edge-triggered.
+	struct InputActions {
+		bool toggleFoveationDebug = false;
+		bool takeScreenshot = false;
+	};
+
 	void init();
 	void shutdown();
 
 	// Polls OpenXR events. Returns false when the application should exit.
 	bool pollEvents();
+
+	// Synchronises and reads the controller actions. Call once per frame while
+	// the session is running, before waitFrame.
+	InputActions pollActions();
 
 	bool sessionRunning() const {
 		return m_sessionRunning;
@@ -83,6 +93,7 @@ class XrContext {
 	void createVulkan();
 	void createSession();
 	void createReferenceSpace();
+	void createActions();
 
 	void handleEvent(const XrEventDataBuffer &event);
 	void check(XrResult result, const char *what) const;
@@ -101,6 +112,11 @@ class XrContext {
 	XrSystemId m_systemId = XR_NULL_SYSTEM_ID;
 	XrSession m_session = XR_NULL_HANDLE;
 	XrSpace m_localSpace = XR_NULL_HANDLE;
+	XrActionSet m_actionSet = XR_NULL_HANDLE;
+	XrAction m_toggleDebugAction = XR_NULL_HANDLE;
+	XrAction m_screenshotAction = XR_NULL_HANDLE;
+	bool m_prevToggleDebug = false;
+	bool m_prevScreenshot = false;
 	XrSessionState m_sessionState = XR_SESSION_STATE_UNKNOWN;
 	bool m_sessionRunning = false;
 	bool m_frameBegun = false;

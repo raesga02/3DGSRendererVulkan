@@ -61,6 +61,7 @@ class Application {
 	uint32_t m_shadingRate = 1;
 	uint32_t m_foveationRate = 0;
 	float m_foveationSize = 0.40f;
+	float m_foveationRing = 0.32f;
 	bool m_foveationDebug = false;
 
   private:

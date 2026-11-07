@@ -260,6 +260,86 @@ void XrContext::createSession() {
 	sessionInfo.next = &binding;
 	sessionInfo.systemId = m_systemId;
 	check(xrCreateSession(m_instance, &sessionInfo, &m_session), "xrCreateSession");
+
+	createActions();
+}
+
+void XrContext::createActions() {
+	XrActionSetCreateInfo setInfo{XR_TYPE_ACTION_SET_CREATE_INFO};
+	std::strncpy(setInfo.actionSetName, "app_actions", sizeof(setInfo.actionSetName) - 1);
+	std::strncpy(setInfo.localizedActionSetName, "Application Actions", sizeof(setInfo.localizedActionSetName) - 1);
+	check(xrCreateActionSet(m_instance, &setInfo, &m_actionSet), "xrCreateActionSet");
+
+	auto createBooleanAction = [&](const char *name, const char *localized, XrAction &action) {
+		XrActionCreateInfo info{XR_TYPE_ACTION_CREATE_INFO};
+		info.actionType = XR_ACTION_TYPE_BOOLEAN_INPUT;
+		std::strncpy(info.actionName, name, sizeof(info.actionName) - 1);
+		std::strncpy(info.localizedActionName, localized, sizeof(info.localizedActionName) - 1);
+		check(xrCreateAction(m_actionSet, &info, &action), "xrCreateAction");
+	};
+
+	createBooleanAction("toggle_foveation_debug", "Toggle foveation debug", m_toggleDebugAction);
+	createBooleanAction("take_screenshot", "Take screenshot", m_screenshotAction);
+
+	XrPath aPath = XR_NULL_PATH;
+	XrPath bPath = XR_NULL_PATH;
+	check(xrStringToPath(m_instance, "/user/hand/right/input/a/click", &aPath), "xrStringToPath");
+	check(xrStringToPath(m_instance, "/user/hand/right/input/b/click", &bPath), "xrStringToPath");
+
+	XrActionSuggestedBinding bindings[] = {
+		{ m_toggleDebugAction, aPath },
+		{ m_screenshotAction, bPath },
+	};
+
+	auto suggestProfile = [&](const char *profile) {
+		XrPath profilePath = XR_NULL_PATH;
+		if (XR_FAILED(xrStringToPath(m_instance, profile, &profilePath)))
+			return;
+		XrInteractionProfileSuggestedBinding suggested{XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
+		suggested.interactionProfile = profilePath;
+		suggested.suggestedBindings = bindings;
+		suggested.countSuggestedBindings = 2;
+		const XrResult result = xrSuggestInteractionProfileBindings(m_instance, &suggested);
+		if (XR_FAILED(result))
+			utils::logWarn("Could not suggest bindings for {} ({})", profile, static_cast<int>(result));
+	};
+	suggestProfile("/interaction_profiles/oculus/touch_controller");
+
+	XrSessionActionSetsAttachInfo attach{XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO};
+	attach.countActionSets = 1;
+	attach.actionSets = &m_actionSet;
+	check(xrAttachSessionActionSets(m_session, &attach), "xrAttachSessionActionSets");
+
+	utils::logInfo("OpenXR actions: right A toggles foveation debug, right B takes a screenshot");
+}
+
+XrContext::InputActions XrContext::pollActions() {
+	InputActions result;
+	if (!m_sessionRunning || m_actionSet == XR_NULL_HANDLE)
+		return result;
+
+	XrActiveActionSet activeActionSet{ m_actionSet, XR_NULL_PATH };
+	XrActionsSyncInfo syncInfo{XR_TYPE_ACTIONS_SYNC_INFO};
+	syncInfo.countActiveActionSets = 1;
+	syncInfo.activeActionSets = &activeActionSet;
+	if (XR_FAILED(xrSyncActions(m_session, &syncInfo)))
+		return result;
+
+	auto pressed = [&](XrAction action, bool &previous) {
+		XrActionStateGetInfo getInfo{XR_TYPE_ACTION_STATE_GET_INFO};
+		getInfo.action = action;
+		XrActionStateBoolean state{XR_TYPE_ACTION_STATE_BOOLEAN};
+		if (XR_FAILED(xrGetActionStateBoolean(m_session, &getInfo, &state)))
+			return false;
+		const bool now = state.isActive == XR_TRUE && state.currentState == XR_TRUE;
+		const bool edge = now && !previous;
+		previous = now;
+		return edge;
+	};
+
+	result.toggleFoveationDebug = pressed(m_toggleDebugAction, m_prevToggleDebug);
+	result.takeScreenshot = pressed(m_screenshotAction, m_prevScreenshot);
+	return result;
 }
 
 void XrContext::createReferenceSpace() {
@@ -391,6 +471,10 @@ void XrContext::shutdown() {
 	// exit we just destroy the session; calling xrEndSession here is not valid
 	// for every session state.
 	m_sessionRunning = false;
+
+	if (m_actionSet)
+		xrDestroyActionSet(m_actionSet);
+	m_actionSet = XR_NULL_HANDLE;
 
 	if (m_localSpace)
 		xrDestroySpace(m_localSpace);
