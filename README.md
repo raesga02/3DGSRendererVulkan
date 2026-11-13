@@ -51,6 +51,13 @@ Implemented:
 - **Degree-3 spherical harmonics** in the vertex shader (view-dependent colour).
 - **`SortPass`**: GPU LSD radix sort (keygen + 4×8-bit stable histogram/scan/
   scatter), double-buffered per frame.
+- **Tiled compute rasterizer** (`--tiled` or the GUI): project → bin → radix
+  sort → 16×16 tile raster with front-to-back early-out → composite. It shares
+  the screen-space and 3D floater filters with the instanced path; its per-tile
+  sort is always on (the global "Depth sort" toggle only affects the instanced
+  path). Desktop-only: multi-view VR falls back to instanced. Total time is
+  currently higher than instanced for `room`/`garden` because binning duplicates
+  Gaussians and grows the sort/composite cost.
 - Orbit + fly cameras auto-framed from the scene or the first training camera.
 - Floater filter, splat-scale and SH-degree controls; `F12` screenshots.
 - **Estimated GPU memory** readout in the GUI (total + scene/sort/frame/swapchain

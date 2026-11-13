@@ -176,6 +176,9 @@ class Renderer {
 	float m_prevSplatScale = -1.0f;
 	bool m_prevCull = false;
 	float m_prevMaxSplat = -1.0f;
+	float m_prevMinOpacity = -1.0f;
+	float m_prevMaxWorldScale = -1.0f;
+	float m_prevMaxDistance = -1.0f;
 	bool m_prevSortEnabled = true;
 	bool m_warnedTiledMultiView = false;
 	bool m_loggedViewCameras = false;

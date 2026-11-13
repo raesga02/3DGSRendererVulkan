@@ -339,6 +339,9 @@ void Renderer::updateSortDirty() {
 	               m_sceneState.splatScale != m_prevSplatScale ||
 	               m_sceneState.cullLargeSplats != m_prevCull ||
 	               m_sceneState.maxSplatFraction != m_prevMaxSplat ||
+	               m_sceneState.minOpacity != m_prevMinOpacity ||
+	               m_sceneState.maxWorldScaleFraction != m_prevMaxWorldScale ||
+	               m_sceneState.maxDistanceFactor != m_prevMaxDistance ||
 	               m_sceneState.sortEnabled != m_prevSortEnabled;
 
 	if (changed) {
@@ -356,6 +359,9 @@ void Renderer::updateSortDirty() {
 	m_prevSplatScale = m_sceneState.splatScale;
 	m_prevCull = m_sceneState.cullLargeSplats;
 	m_prevMaxSplat = m_sceneState.maxSplatFraction;
+	m_prevMinOpacity = m_sceneState.minOpacity;
+	m_prevMaxWorldScale = m_sceneState.maxWorldScaleFraction;
+	m_prevMaxDistance = m_sceneState.maxDistanceFactor;
 	m_prevSortEnabled = m_sceneState.sortEnabled;
 }
 

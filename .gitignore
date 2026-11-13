@@ -11,6 +11,9 @@ compile_commands.json
 assets/models/*
 !assets/models/.gitkeep
 
+# Presentation capture assets (large videos/images)
+/presentation/
+
 # Python
 __pycache__/
 *.pyc

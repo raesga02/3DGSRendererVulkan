@@ -50,6 +50,9 @@ layout(push_constant) uniform Push {
     float splatScale;
     float maxRadiusFraction;
     int shDegree;
+    float minOpacity;               // discard fainter Gaussians
+    vec4 sceneCenterRadius;         // xyz = scene center, w = scene radius
+    vec4 worldCull;                 // x = max 3D stddev fraction, y = max distance factor
 } pc;
 
 const float SH_C0 = 0.28209479177387814;
@@ -108,6 +111,25 @@ void main() {
 
     Gaussian g = g[i];
     vec3 pos = vec3(g.position[0], g.position[1], g.position[2]);
+
+    // Faint Gaussians are a common source of floating haze and contribute
+    // little; drop them before any projection work.
+    if (g.opacity < pc.minOpacity)
+        return;
+
+    // 3D floater filters: large world-space Gaussians and far outliers. These
+    // match the instanced path's splat.vert so both rasterizers produce the
+    // same image for the same GUI settings.
+    if (pc.sceneCenterRadius.w > 0.0) {
+        if (pc.worldCull.x > 0.0) {
+            float stdMax = sqrt(max(g.cov3D[0], max(g.cov3D[3], g.cov3D[5])));
+            if (stdMax > pc.worldCull.x * pc.sceneCenterRadius.w)
+                return;
+        }
+        if (pc.worldCull.y > 0.0 && length(pos - pc.sceneCenterRadius.xyz) > pc.worldCull.y * pc.sceneCenterRadius.w)
+            return;
+    }
+
     vec4 viewPos4 = camera.view * vec4(pos, 1.0);
     if (viewPos4.z > -0.05)
         return;

@@ -67,6 +67,9 @@ struct ProjectPush {
 	float splatScale;
 	float maxRadiusFraction;
 	int32_t shDegree;
+	float minOpacity;
+	glm::vec4 sceneCenterRadius;        // xyz = center, w = radius
+	glm::vec4 worldCull;                // x = max world scale fraction, y = max distance factor
 };
 struct BinPush {
 	uint32_t maxProjected;
@@ -415,7 +418,11 @@ void TileRasterizer::record(RenderContext &renderCtx, const PassContext &passCtx
 	// 1) Project
 	ProjectPush pp{ m_count, m_tilesX, m_tilesY, m_depthBits, renderCtx.sceneState->splatScale,
 		            renderCtx.sceneState->cullLargeSplats ? renderCtx.sceneState->maxSplatFraction : 0.0f,
-		            renderCtx.sceneState->shDegree };
+		            renderCtx.sceneState->shDegree,
+		            renderCtx.sceneState->minOpacity,
+		            glm::vec4(renderCtx.sceneState->sceneCenter, renderCtx.sceneState->sceneRadius),
+		            glm::vec4(renderCtx.sceneState->maxWorldScaleFraction,
+		                      renderCtx.sceneState->maxDistanceFactor, 0.0f, 0.0f) };
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_projectPipeline);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_projectLayout, 0, 1, &frame.projectSet, 0, nullptr);
 	vkCmdPushConstants(cmd, m_projectLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pp), &pp);

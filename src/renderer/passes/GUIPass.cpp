@@ -157,11 +157,16 @@ void GUIPass::newFrame(const RenderStats &stats) {
 	int renderMode = static_cast<int>(m_sceneState->renderMode);
 	if (ImGui::Combo("Rasterizer", &renderMode, "Instanced\0Tiled\0"))
 		m_sceneState->renderMode = static_cast<RenderMode>(renderMode);
+	const bool tiledMode = m_sceneState->renderMode == RenderMode::Tiled;
 	ImGui::SliderFloat("Splat scale", &m_sceneState->splatScale, 0.1f, 3.0f, "%.2f");
 	if (m_sceneState->maxShDegree > 0) {
 		ImGui::SliderInt("SH degree", &m_sceneState->shDegree, 0, m_sceneState->maxShDegree);
 	}
+	ImGui::BeginDisabled(tiledMode);
 	ImGui::Checkbox("Depth sort", &m_sceneState->sortEnabled);
+	if (tiledMode && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+		ImGui::SetTooltip("Tiled path always sorts per tile; this toggle only affects the instanced path");
+	ImGui::EndDisabled();
 	ImGui::Checkbox("Cull floaters", &m_sceneState->cullLargeSplats);
 	if (m_sceneState->cullLargeSplats)
 		ImGui::SliderFloat("Max splat size", &m_sceneState->maxSplatFraction, 0.02f, 1.0f, "%.2f");
