@@ -1,0 +1,8 @@
+[info] Swapchain: format 44 presentMode 2 images 3
+[info] Fragment shading rate: off (uniform 1x1, foveation 0)
+[info] Foveation blur post-process: off
+[info] Found 13 scene(s) in /home/pablo/Develop/TDT16_XR/3DGSRendererVulkan/assets/models
+[info] Scene up for VR leveling: (-0.02, -0.97, -0.23)
+[info] Loaded scene 'bicycle': 6131954 Gaussians, SH degree 3, radius 24.26
+[info] Estimated GPU memory: 1582.7 MiB (scene 1356.7, sort 193.0, swapchain 16.5)
+[info] GPU timings (avg 90 frames): bg 0.05 | keygen 3.35 | radix 5.33 | raster 11.35 | gui 0.01 | total 20.09 ms

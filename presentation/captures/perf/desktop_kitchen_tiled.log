@@ -1,0 +1,8 @@
+[info] Swapchain: format 44 presentMode 2 images 3
+[info] Fragment shading rate: off (uniform 1x1, foveation 0)
+[info] Foveation blur post-process: off
+[info] Found 13 scene(s) in /home/pablo/Develop/TDT16_XR/3DGSRendererVulkan/assets/models
+[info] Scene up for VR leveling: (-0.07, -0.81, -0.59)
+[info] Loaded scene 'kitchen': 1852335 Gaussians, SH degree 3, radius 11.21
+[info] Estimated GPU memory: 501.1 MiB (scene 409.8, sort 58.3, swapchain 16.5)
+[info] GPU timings (avg 90 frames): bg 1.96 | keygen 0.96 | radix 4.82 | raster 5.99 | gui 0.02 | total 13.76 ms
